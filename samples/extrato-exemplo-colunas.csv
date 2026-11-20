@@ -1,0 +1,25 @@
+Data;Descrição;Entrada;Saída;Saldo
+24/10/2026;Supermercado Central;;35,40;-32,99
+26/10/2026;Posto Brasil;;50,00;-82,99
+28/10/2026;Pix recebido - Cliente A;300,00;;217,01
+30/10/2026;Padaria Pao Quente;;18,50;198,51
+31/10/2026;Pix enviado - Fulano de Tal;;40,00;158,51
+03/11/2026;Farmacia Popular;;42,30;116,21
+04/11/2026;ACADEMIA FITNESS CLUB;;169,90;-53,69
+05/11/2026;CREDITO SALARIO;1.497,43;;1.443,74
+05/11/2026;Supermercado Central;;62,10;1.381,64
+06/11/2026;Pix recebido - Cliente B;850,00;;2.231,64
+08/11/2026;Posto Brasil;;45,00;2.186,64
+09/11/2026;TIM CELULAR;;50,00;2.136,64
+10/11/2026;FACULDADE ANHANGUERA;;325,97;1.810,67
+10/11/2026;Pix enviado - Provedor Internet;;20,00;1.790,67
+12/11/2026;Lanchonete Sabor;;27,00;1.763,67
+12/11/2026;Lanchonete Sabor;;27,00;1.736,67
+13/11/2026;Pix enviado - para Hebert Akym;;100,00;1.636,67
+13/11/2026;Pix recebido - de Hebert Akym;100,00;;1.736,67
+14/11/2026;Pgto CDC BB Credito Automatico;;112,65;1.624,02
+15/11/2026;Barbearia Estilo;;60,00;1.564,02
+16/11/2026;PAGAMENTO CARTAO DE CREDITO;;890,47;673,55
+17/11/2026;Supermercado Central;;48,75;624,80
+18/11/2026;Juros saldo devedor;;1,20;623,60
+19/11/2026;Farmacia Popular;;23,90;599,70

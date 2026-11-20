@@ -1,0 +1,206 @@
+{
+ "baseline": {
+  "date": "2026-10-23",
+  "balance": 2.41,
+  "note": "Saldo real da conta BB em 23/10 (aba Extrato Out)"
+ },
+ "config": {
+  "dizimoPct": 0.1,
+  "dizimoAuto": true,
+  "avulsosMensal": 400,
+  "cardDueDay": 16,
+  "cardCloseDay": 8,
+  "ownNames": [
+   "hebert akym"
+  ]
+ },
+ "recurring": [
+  {
+   "id": "r5",
+   "desc": "Salário líquido",
+   "cat": "Salário",
+   "amount": 1497.43,
+   "day": 5,
+   "active": true,
+   "card": false,
+   "type": "in",
+   "match": ""
+  },
+  {
+   "id": "r6",
+   "desc": "Vale Alimentação (benefício — fora do total, como na sua planilha)",
+   "cat": "Vale Alimentação",
+   "amount": 420.0,
+   "day": 5,
+   "active": false,
+   "card": false,
+   "type": "in",
+   "match": ""
+  },
+  {
+   "id": "r16",
+   "desc": "Academia",
+   "cat": "Saúde",
+   "amount": 169.9,
+   "day": 4,
+   "active": true,
+   "card": false,
+   "type": "out",
+   "match": "academia"
+  },
+  {
+   "id": "r17",
+   "desc": "Faculdade Anhanguera",
+   "cat": "Educação",
+   "amount": 325.97,
+   "day": 10,
+   "active": true,
+   "card": false,
+   "type": "out",
+   "match": "anhanguera"
+  },
+  {
+   "id": "r18",
+   "desc": "Tim",
+   "cat": "Telefone e internet",
+   "amount": 50.0,
+   "day": 9,
+   "active": true,
+   "card": false,
+   "type": "out",
+   "match": "tim"
+  },
+  {
+   "id": "r19",
+   "desc": "Odonto",
+   "cat": "Saúde",
+   "amount": 67.3,
+   "day": 15,
+   "active": true,
+   "card": false,
+   "type": "out",
+   "match": "plano assistencia"
+  },
+  {
+   "id": "r20",
+   "desc": "Empréstimo BB",
+   "cat": "Dívidas/Empréstimos",
+   "amount": 112.65,
+   "day": 15,
+   "active": true,
+   "card": false,
+   "type": "out",
+   "match": "cdc"
+  },
+  {
+   "id": "r21",
+   "desc": "Corte de cabelo (2x/mês)",
+   "cat": "Cuidados pessoais",
+   "amount": 60.0,
+   "day": 15,
+   "active": true,
+   "card": false,
+   "type": "out",
+   "match": ""
+  },
+  {
+   "id": "r22",
+   "desc": "Ajuda na internet",
+   "cat": "Moradia",
+   "amount": 20.0,
+   "day": 10,
+   "active": true,
+   "card": false,
+   "type": "out",
+   "match": "provedor"
+  },
+  {
+   "id": "r23",
+   "desc": "Claude",
+   "cat": "Assinaturas",
+   "amount": 58.86,
+   "day": 16,
+   "active": true,
+   "card": true,
+   "type": "out",
+   "match": ""
+  },
+  {
+   "id": "r24",
+   "desc": "Google One / Drive",
+   "cat": "Assinaturas",
+   "amount": 36.0,
+   "day": 16,
+   "active": true,
+   "card": true,
+   "type": "out",
+   "match": ""
+  },
+  {
+   "id": "r25",
+   "desc": "MeliMais",
+   "cat": "Assinaturas",
+   "amount": 9.9,
+   "day": 16,
+   "active": true,
+   "card": true,
+   "type": "out",
+   "match": ""
+  },
+  {
+   "id": "r26",
+   "desc": "iFood",
+   "cat": "Assinaturas",
+   "amount": 5.95,
+   "day": 16,
+   "active": true,
+   "card": true,
+   "type": "out",
+   "match": ""
+  },
+  {
+   "id": "r27",
+   "desc": "ChatGPT",
+   "cat": "Assinaturas",
+   "amount": 103.72,
+   "day": 16,
+   "active": true,
+   "card": true,
+   "type": "out",
+   "match": ""
+  },
+  {
+   "id": "r28",
+   "desc": "Xbox Game Pass",
+   "cat": "Assinaturas",
+   "amount": 76.9,
+   "day": 16,
+   "active": true,
+   "card": true,
+   "type": "out",
+   "match": ""
+  },
+  {
+   "id": "r29",
+   "desc": "Cifra Club",
+   "cat": "Assinaturas",
+   "amount": 14.9,
+   "day": 16,
+   "active": true,
+   "card": true,
+   "type": "out",
+   "match": ""
+  },
+  {
+   "id": "r30",
+   "desc": "YouTube Premium",
+   "cat": "Trabalho/Ferramentas",
+   "amount": 26.9,
+   "day": 16,
+   "active": true,
+   "card": true,
+   "type": "out",
+   "match": ""
+  }
+ ]
+}
