@@ -1,7 +1,7 @@
 import { parseOFX, looksLikeOFX } from './src/ofx.js';
 import { parseCSV } from './src/csv.js';
 import { CATS_IN, CATS_OUT } from './src/rules.js';
-import { addManual, confirmGroup, importParsed, moveToAccount, newState, removeTxn, reviewGroups, updateTxn } from './src/ledger.js';
+import { addManual, addSim, clearSims, removeSim, confirmGroup, importParsed, moveToAccount, newState, removeTxn, reviewGroups, updateTxn } from './src/ledger.js';
 import { currentBalance, monthPlan, monthView, nextFaturaDue, reconcile } from './src/summary.js';
 import { forecast, podeGastar } from './src/forecast.js';
 import { coverage } from './src/recurring.js';
@@ -29,7 +29,36 @@ function toast(msg) {
   clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 2600);
 }
 function persist() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* sem armazenamento */ } }
-function commit(next, msg) { state = next; persist(); if (msg) toast(msg); render(); }
+function commit(next, msg) { state = { ...next, savedAt: new Date().toISOString() }; persist(); if (msg) toast(msg); render(); scheduleSync(); }
+
+/* ---- sincronização automática entre aparelhos (via planilha do Google) ----
+   Envia 1,5 s depois de cada alteração e confere se há versão mais nova ao abrir e ao voltar para o app.
+   Vale a versão salva por último; não mistura edições feitas ao mesmo tempo em dois aparelhos. */
+const syncCfg = () => { const c = sheetsCfg(); return c.url && c.token ? c : null; };
+let syncTimer = null, syncing = false;
+function scheduleSync() {
+  if (!syncCfg()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(async () => {
+    try { await pushState(syncCfg(), state); setSync('ok'); } catch { setSync('erro'); }
+  }, 1500);
+}
+function setSync(st) { window.__sync = st; document.querySelectorAll('.syncdot').forEach((el) => { el.dataset.s = st; el.title = st === 'ok' ? 'Sincronizado com a planilha' : st === 'erro' ? 'Sem conexão com a planilha. Tenta de novo na próxima alteração.' : st ? 'Sincronizando...' : ''; }); }
+async function pullIfNewer() {
+  const cfg = syncCfg(); if (!cfg || syncing || modal) return;
+  syncing = true; setSync('...');
+  try {
+    const out = await pullState(cfg);
+    const mine = state.savedAt || '';
+    if (out.state && out.updatedAt && out.updatedAt > mine) {
+      state = { ...out.state, savedAt: out.updatedAt }; persist(); render(); toast('Atualizado com os dados do outro aparelho');
+    } else if (mine && (!out.updatedAt || mine > out.updatedAt)) {
+      await pushState(cfg, state);
+    }
+    setSync('ok');
+  } catch { setSync('erro'); } finally { syncing = false; }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pullIfNewer(); });
 const sheetsCfg = () => { try { return JSON.parse(localStorage.getItem(CFG_KEY) || '{}'); } catch { return {}; } };
 
 async function readFileText(file) {
@@ -44,7 +73,7 @@ async function importText(text, name, asCard) {
     if (!parsed.txns.length) throw new Error('Não encontrei lançamentos neste arquivo.');
     if (asCard) parsed.account = 'cartao';
     const { state: next, report } = importParsed(state, parsed, { file: name });
-    state = next; persist();
+    state = { ...next, savedAt: new Date().toISOString() }; persist(); scheduleSync();
     modal = { type: 'import', report };
     view = 'inicio'; render();
   } catch (e) {
@@ -86,13 +115,14 @@ function banner(rec, compact = false) {
     <div class="small mute">Importe um extrato que traga o saldo, ou informe o saldo em Ajustes.</div></div>`;
 }
 
-function chart(fc) {
+function chart(fc, base) {
   const W = 760, H = 210, L = 46, R = 10, T = 10, B = 26;
-  const vals = fc.series.map((s) => s.balance);
+  const vals = fc.series.map((s) => s.balance).concat(base ? base.series.map((s) => s.balance) : []);
   const min = Math.min(0, ...vals), max = Math.max(0, ...vals) * 1.08 || 1;
   const n = fc.series.length;
   const x = (i) => L + (i * (W - L - R)) / Math.max(1, n - 1);
   const y = (v) => T + ((max - v) * (H - T - B)) / (max - min || 1);
+  const bpts = base ? base.series.map((s, i) => `${x(i).toFixed(1)},${y(s.balance).toFixed(1)}`).join(' ') : '';
   const pts = fc.series.map((s, i) => `${x(i).toFixed(1)},${y(s.balance).toFixed(1)}`).join(' ');
   const ticks = [0, 15, 30, 45, 60].filter((i) => i < n);
   const nf = fc.negativeFrom ? fc.series.findIndex((s) => s.date === fc.negativeFrom) : -1;
@@ -103,6 +133,7 @@ function chart(fc) {
     <text x="${L - 6}" y="${y(0) + 4}" text-anchor="end" font-size="12" fill="var(--mute)">0</text>
     <text x="${L - 6}" y="${T + 10}" text-anchor="end" font-size="12" fill="var(--mute)">${label(max)}</text>
     ${min < 0 ? `<text x="${L - 6}" y="${y(min) + 4}" text-anchor="end" font-size="12" fill="var(--mute)">${label(min)}</text>` : ''}
+    ${base ? `<polyline points="${bpts}" fill="none" stroke="var(--mute)" stroke-width="2" stroke-dasharray="5 5" stroke-linejoin="round"/>` : ''}
     <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round"/>
     ${nf >= 0 ? `<circle cx="${x(nf)}" cy="${y(fc.series[nf].balance)}" r="6" fill="var(--red)" stroke="var(--card)" stroke-width="2"/>` : ''}
     ${ticks.map((i) => `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}" font-size="12" fill="var(--mute)">${ddmm(fc.series[i].date)}</text>`).join('')}
@@ -110,11 +141,22 @@ function chart(fc) {
 }
 
 /* ---------- telas ---------- */
+function simCard(sims, fc, base, pg, pgBase) {
+  const end = fc.series[fc.series.length - 1], endB = base ? base.series[base.series.length - 1] : null;
+  const list = sims.map((x) => `<div class="line"><span>${ddmm(x.date)} · ${esc(x.label)}</span><span class="row" style="gap:8px;flex-wrap:nowrap"><strong class="num ${x.amount < 0 ? 'neg' : 'pos'}">${brl(x.amount)}</strong><button class="btn sm danger" data-act="sim-del" data-id="${x.id}" aria-label="Remover simulação">Remover</button></span></div>`).join('');
+  const diff = base ? `<div class="alert" style="margin:10px 0">Com a simulação: <strong>pode gastar ${brl(pg.value)}</strong> até o fim do mês (sem ela, ${brl(pgBase.value)}). Saldo daqui a 60 dias: <strong>${brl(end.balance)}</strong> (sem ela, ${brl(endB.balance)}).</div>` : '';
+  return `<div class="card" style="margin-bottom:16px"><div class="between"><div><h2>Simulação</h2><div class="small mute">Teste um valor para ver como a projeção fica. Não entra no saldo nem na conferência com o banco.</div></div>
+    <div class="row"><button class="btn sm primary" data-act="sim-add">Simular um valor</button>${sims.length ? '<button class="btn sm" data-act="sim-clear">Limpar tudo</button>' : ''}</div></div>${diff}${list}</div>`;
+}
+
 function inicio() {
   const t = today();
   const rec = reconcile(state);
+  const sims = state.sims || [];
   const pg = podeGastar(state, t);
   const fc = forecast(state, t, 60);
+  const base = sims.length ? forecast(state, t, 60, { noSims: true }) : null;
+  const pgBase = sims.length ? podeGastar(state, t, { noSims: true }) : null;
   const ym = addMonths(monthOf(t), 1);
   const mp = monthPlan(state, ym);
   const groups = reviewGroups(state);
@@ -139,9 +181,10 @@ function inicio() {
       <div class="value num ${pg.value < 0 ? 'neg' : ''}">${brl(pg.value)}</div>
       <div class="sub">${pg.value >= 0 ? `cerca de ${brl(pg.perDay)} por dia` : 'o previsto passa do saldo'} · saldo ${brl(pg.balance)}, previsto sair ${brl(pg.committed)}</div></div>
   </div>
+  ${simCard(sims, fc, base, pg, pgBase)}
   <div class="grid g2">
     <div class="card"><div class="between"><h2>Saldo projetado, próximos 60 dias</h2><span class="small mute">fixos + cartão + gasto médio de ${brl(fc.rate)}/dia</span></div>
-      <div style="margin:8px 0">${chart(fc)}</div>${alert}</div>
+      <div style="margin:8px 0">${chart(fc, base)}</div>${base ? '<div class="small mute">Linha cheia: com a simulação. Tracejada: sem ela.</div>' : ''}${alert}</div>
     <div class="card"><h2>${MESES[Number(ym.slice(5)) - 1][0].toUpperCase() + MESES[Number(ym.slice(5)) - 1].slice(1)}, como vai ficar</h2>
       <div style="margin-top:10px">
       <div class="line"><span>Entradas previstas</span><strong class="num">${brl(mp.totalEntradas)}</strong></div>
@@ -276,6 +319,16 @@ function modalHTML() {
       <p class="small mute">${m.acct === 'banco' ? 'Na conta: quando o extrato trouxer este gasto, ele só confirma, sem duplicar.' : m.acct === 'cartao' ? 'No cartão: entra na fatura, não no saldo do banco.' : 'Dinheiro: fica numa conta própria e não entra na conferência com o banco.'}</p>
       <div class="row" style="margin-top:12px"><button class="btn primary" data-act="add-save">Salvar</button><button class="btn" data-act="close">Cancelar</button></div></div></div>`;
   }
+  if (modal.type === 'sim') {
+    const m = modal;
+    return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Simular um valor"><h2 style="font-size:20px">Simular um valor</h2>
+      <p class="small mute">Fica só na projeção. Pode remover depois, quando quiser.</p>
+      <div class="seg" style="margin:10px 0"><button class="chip" aria-pressed="${!m.entrada}" data-act="sim-kind" data-v="0">Saída</button><button class="chip" aria-pressed="${m.entrada}" data-act="sim-kind" data-v="1">Entrada</button></div>
+      <label class="lab" for="sv1">Valor (R$)</label><input class="field" id="sv1" inputmode="decimal" placeholder="0,00" autofocus>
+      <label class="lab" for="sd1">O que é</label><input class="field" id="sd1" placeholder="ex.: celular novo, 13º">
+      <label class="lab" for="sdt">Data</label><input class="field" id="sdt" type="date" value="${today()}">
+      <div class="row" style="margin-top:12px"><button class="btn primary" data-act="sim-save">Simular</button><button class="btn" data-act="close">Cancelar</button></div></div></div>`;
+  }
   if (modal.type === 'edit') {
     const t = state.txns.find((x) => x.id === modal.id); if (!t) return '';
     return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Editar lançamento"><div class="small mute">${ddmm(t.date)}${t.rec ? ' · previsto' : ''}</div><h2 style="font-size:20px">${esc(t.desc)}</h2><div class="num ${t.amount < 0 ? 'neg' : 'pos'}" style="font-size:24px;font-weight:700">${brl(t.amount)}</div>
@@ -293,14 +346,15 @@ function render() {
   const nav = (cls) => tabs.map(([k, l, i]) => `<button class="tab" data-view="${k}" ${view === k ? 'aria-current="page"' : ''}>${i}<span>${l}</span>${k === 'revisar' && groups ? `<span class="badge">${groups}</span>` : ''}</button>`).join('');
   const body = { inicio, revisar, mes, lancamentos, ajustes }[view] || inicio;
   $app.innerHTML = `<div class="shell">
-    <header class="topbar"><div class="brand"><img src="icons/icon-192.png" alt=""><div><b>OIKONOMIA</b><span>Conciliação</span></div></div><nav class="tabs" aria-label="Seções">${nav()}</nav></header>
-    <div class="mobilebrand"><div class="brand"><img src="icons/icon-192.png" alt=""><div><b>OIKONOMIA</b><span>Conciliação</span></div></div></div>
+    <header class="topbar"><div class="brand"><img src="icons/icon-192.png" alt=""><div><b>OIKONOMIA</b><span>Conciliação <i data-s="" class="syncdot"></i></span></div></div><nav class="tabs" aria-label="Seções">${nav()}</nav></header>
+    <div class="mobilebrand"><div class="brand"><img src="icons/icon-192.png" alt=""><div><b>OIKONOMIA</b><span>Conciliação <i data-s="" class="syncdot"></i></span></div></div></div>
     <main>${body()}</main>
     <nav class="bottomnav" aria-label="Seções">${nav()}</nav>
     <button class="fab" data-act="add" aria-label="Novo gasto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Gasto</button>
     <input type="file" id="file" accept=".ofx,.csv,.txt,text/csv,text/plain,application/x-ofx,application/octet-stream" hidden>
     ${modalHTML()}</div>`;
   document.title = 'Conciliação — OIKONOMIA';
+  setSync(window.__sync || '');
 }
 
 /* ---------- ações ---------- */
@@ -320,6 +374,16 @@ const actions = {
   },
   filter: (el) => { filter = el.dataset.f; render(); },
   month: (el) => { monthYM = addMonths(monthYM || monthOf(today()), Number(el.dataset.d)); render(); },
+  'sim-add': () => { modal = { type: 'sim', entrada: false }; render(); },
+  'sim-kind': (el) => { modal.entrada = el.dataset.v === '1'; render(); },
+  'sim-save': () => {
+    const v = num('sv1');
+    if (!(v > 0)) return toast('Digite o valor.');
+    const next = addSim(state, { date: document.getElementById('sdt').value || today(), amount: modal.entrada ? v : -v, label: document.getElementById('sd1').value.trim() });
+    modal = null; commit(next, 'Simulação adicionada');
+  },
+  'sim-del': (el) => commit(removeSim(state, Number(el.dataset.id)), 'Simulação removida'),
+  'sim-clear': () => commit(clearSims(state), 'Simulações removidas'),
   add: () => { modal = { type: 'add', entrada: false, acct: 'dinheiro' }; render(); },
   'add-kind': (el) => { modal.entrada = el.dataset.v === '1'; render(); },
   'add-acct': (el) => { modal.acct = el.dataset.v; render(); },
@@ -424,6 +488,7 @@ async function start() {
   try { const raw = localStorage.getItem(KEY); if (raw) state = JSON.parse(raw); } catch { state = null; }
   if (!state) { const seed = await (await fetch('seed.json')).json(); state = newState(seed); persist(); }
   render();
+  pullIfNewer();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && (!new URLSearchParams(location.search).has('hoje') || new URLSearchParams(location.search).has('sw'))) navigator.serviceWorker.register('sw.js').catch(() => {});
   await takeSharedFile();
 }

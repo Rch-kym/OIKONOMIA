@@ -131,3 +131,11 @@ export function updateTxn(stateIn, id, patch) {
   reclassify(state);
   return state;
 }
+
+// ---- simulações: valores de teste para ver como a projeção ficaria ----
+export function addSim(state, { date, amount, label }) {
+  const id = state.nextId;
+  return { ...state, nextId: id + 1, sims: [...(state.sims || []), { id, date, amount: Math.round(amount * 100) / 100, label: label || 'Simulação' }] };
+}
+export function removeSim(state, id) { return { ...state, sims: (state.sims || []).filter((x) => x.id !== id) }; }
+export function clearSims(state) { return { ...state, sims: [] }; }

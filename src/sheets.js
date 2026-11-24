@@ -27,7 +27,7 @@ export function rowsFromState(state) {
 export async function pushState(cfg, state) {
   return call(cfg, {
     action: 'push',
-    updatedAt: new Date().toISOString(),
+    updatedAt: state.savedAt || new Date().toISOString(),
     state: JSON.stringify(state),
     lancamentos: rowsFromState(state),
     regras: [['estabelecimento', 'categoria', 'tipo'], ...state.rules.map((r) => [r.key, r.cat, r.kind])],

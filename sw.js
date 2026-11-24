@@ -1,5 +1,5 @@
 // Service worker: guarda o app para abrir offline e recebe o arquivo compartilhado pelo menu "Compartilhar" do Android.
-const STATIC = 'conc-static-v3';
+const STATIC = 'conc-static-v4';
 const FILES = ['./', 'index.html', 'app.css', 'app.js', 'seed.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/logo-wordmark.png',
   'src/util.js', 'src/ofx.js', 'src/csv.js', 'src/rules.js', 'src/card.js', 'src/recurring.js', 'src/ledger.js', 'src/summary.js', 'src/forecast.js', 'src/sheets.js'];
 

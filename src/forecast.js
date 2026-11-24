@@ -3,7 +3,7 @@ import { avulsoRate, bankBalanceAt, dizimoFor, fatura } from './summary.js';
 import { coverage, occurrences } from './recurring.js';
 import { addDays, addMonths, dateInMonth, diffDays, endOfMonth, monthOf, round2 } from './util.js';
 
-function futureEvents(state, fromExclusive, toInclusive) {
+function futureEvents(state, fromExclusive, toInclusive, opts = {}) {
   const ev = new Map(); // data -> [{label, amount}]
   const push = (d, label, amount) => { if (!ev.has(d)) ev.set(d, []); ev.get(d).push({ label, amount: round2(amount) }); };
 
@@ -28,15 +28,22 @@ function futureEvents(state, fromExclusive, toInclusive) {
       if (!paga && f.total > 0) push(d, 'Fatura do cartão', -f.total);
     }
   }
+  // simulações ("e se eu gastar/receber X"): só entram na projeção, nunca no saldo nem na conferência
+  if (!opts.noSims) {
+    for (const sm of state.sims || []) {
+      const d = sm.date > fromExclusive ? sm.date : addDays(fromExclusive, 1);
+      if (d <= toInclusive) push(d, `Simulação: ${sm.label}`, sm.amount);
+    }
+  }
   return ev;
 }
 
-export function forecast(state, today, days = 60) {
+export function forecast(state, today, days = 60, opts = {}) {
   const cov = coverage(state);
   const start = cov < today ? cov : today;
   const end = addDays(today, days);
   const rate = avulsoRate(state);
-  const ev = futureEvents(state, cov, end);
+  const ev = futureEvents(state, cov, end, opts);
   let bal = bankBalanceAt(state, cov);
   const series = [];
   if (cov >= today) series.push({ date: cov, balance: bal, events: [] });
@@ -53,11 +60,11 @@ export function forecast(state, today, days = 60) {
 }
 
 // Pode gastar = saldo atual + o que entra − o que está previsto sair até o fim do mês.
-export function podeGastar(state, today) {
+export function podeGastar(state, today, opts = {}) {
   const cov = coverage(state);
   const eom = endOfMonth(monthOf(today));
   const bal = bankBalanceAt(state, cov);
-  const ev = futureEvents(state, cov, eom);
+  const ev = futureEvents(state, cov, eom, opts);
   let net = 0;
   for (const list of ev.values()) for (const e of list) net += e.amount;
   const value = round2(bal + net);
