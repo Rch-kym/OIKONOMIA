@@ -41,6 +41,13 @@ export function importParsed(stateIn, parsed, meta = {}) {
   const acct = parsed.account === 'cartao' || meta.asCard ? 'cartao' : 'banco';
   const report = { file: meta.file || '', acct, found: parsed.txns.length, added: 0, duplicates: 0, before: 0, confirmedManual: 0, auto: 0, review: 0, balance: parsed.balance || null };
 
+  // Primeiro extrato (ainda sem lançamentos do banco): o "Saldo Anterior" do PDF vira o saldo inicial.
+  if (acct === 'banco' && parsed.opening && parsed.opening.date >= state.baseline.date && !state.txns.some((t) => t.acct === 'banco' && !t.manual)) {
+    state.baseline = { date: parsed.opening.date, balance: parsed.opening.amount };
+    report.rebased = { date: parsed.opening.date, amount: parsed.opening.amount };
+  }
+  if (parsed.check) report.check = parsed.check;
+
   const existing = new Map();
   for (const t of state.txns) existing.set(keyOf(t), (existing.get(keyOf(t)) || 0) + 1);
   const seenInFile = new Map();

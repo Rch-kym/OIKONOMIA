@@ -1,7 +1,7 @@
 // Service worker: guarda o app para abrir offline e recebe o arquivo compartilhado pelo menu "Compartilhar" do Android.
-const STATIC = 'conc-static-v4';
+const STATIC = 'conc-static-v5';
 const FILES = ['./', 'index.html', 'app.css', 'app.js', 'seed.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/logo-wordmark.png',
-  'src/util.js', 'src/ofx.js', 'src/csv.js', 'src/rules.js', 'src/card.js', 'src/recurring.js', 'src/ledger.js', 'src/summary.js', 'src/forecast.js', 'src/sheets.js'];
+  'src/pdf.js', 'vendor/pdf.min.mjs', 'vendor/pdf.worker.min.mjs', 'src/util.js', 'src/ofx.js', 'src/csv.js', 'src/rules.js', 'src/card.js', 'src/recurring.js', 'src/ledger.js', 'src/summary.js', 'src/forecast.js', 'src/sheets.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(STATIC).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

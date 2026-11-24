@@ -21,7 +21,7 @@
       "files": [
         {
           "name": "extrato",
-          "accept": [".ofx", ".csv", ".txt", "text/csv", "text/plain", "application/x-ofx", "application/octet-stream", "application/vnd.ms-excel"]
+          "accept": [".pdf", "application/pdf", ".ofx", ".csv", ".txt", "text/csv", "text/plain", "application/x-ofx", "application/octet-stream", "application/vnd.ms-excel"]
         }
       ]
     }

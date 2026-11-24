@@ -6,6 +6,7 @@ import { currentBalance, monthPlan, monthView, nextFaturaDue, reconcile } from '
 import { forecast, podeGastar } from './src/forecast.js';
 import { coverage } from './src/recurring.js';
 import { pullState, pushState } from './src/sheets.js';
+import { parsePDF } from './src/pdf.js';
 import { MESES, addMonths, brl, ddmm, isoDate, monthOf, round2 } from './src/util.js';
 
 const KEY = 'conc-state-v1';
@@ -67,19 +68,30 @@ async function readFileText(file) {
 }
 function parseAny(text) { return looksLikeOFX(text) ? parseOFX(text) : parseCSV(text); }
 
-async function importText(text, name, asCard) {
+const isPdf = (f) => /\.pdf$/i.test(f.name || '') || f.type === 'application/pdf';
+
+// Lê qualquer arquivo aceito (PDF, OFX ou CSV) e importa.
+async function importFile(file, asCard) {
   try {
-    const parsed = parseAny(text);
-    if (!parsed.txns.length) throw new Error('Não encontrei lançamentos neste arquivo.');
-    if (asCard) parsed.account = 'cartao';
-    const { state: next, report } = importParsed(state, parsed, { file: name });
-    state = { ...next, savedAt: new Date().toISOString() }; persist(); scheduleSync();
-    modal = { type: 'import', report };
-    view = 'inicio'; render();
+    let parsed;
+    if (isPdf(file)) { toast('Lendo o PDF...'); parsed = await parsePDF(await file.arrayBuffer()); }
+    else parsed = parseAny(await readFileText(file));
+    finishImport(parsed, file.name, asCard);
   } catch (e) {
     modal = { type: 'erro', msg: e.message };
     render();
   }
+}
+function importText(text, name, asCard) {
+  try { finishImport(parseAny(text), name, asCard); } catch (e) { modal = { type: 'erro', msg: e.message }; render(); }
+}
+function finishImport(parsed, name, asCard) {
+  if (!parsed.txns.length) throw new Error('Não encontrei lançamentos neste arquivo.');
+  if (asCard) parsed.account = 'cartao';
+  const { state: next, report } = importParsed(state, parsed, { file: name });
+  state = { ...next, savedAt: new Date().toISOString() }; persist(); scheduleSync();
+  modal = { type: 'import', report };
+  view = 'inicio'; render();
 }
 
 /* ---------- peças de tela ---------- */
@@ -303,6 +315,8 @@ function modalHTML() {
     const r = modal.report; const rec = reconcile(state); const n = reviewGroups(state).length;
     return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Extrato recebido"><div class="small mute">${r.acct === 'cartao' ? 'Fatura do cartão' : 'Extrato do banco'}</div><h2 style="font-size:22px;margin:2px 0 12px">Extrato recebido</h2>
       <div class="card" style="margin-bottom:12px;padding:12px 14px"><strong>${esc(r.file || 'arquivo')}</strong></div>
+      ${r.rebased ? `<div class="alert" style="margin-bottom:12px">Saldo inicial ajustado para <strong>${brl(r.rebased.amount)}</strong> em ${ddmm(r.rebased.date)}, como diz o extrato. Os lançamentos anteriores a essa data não entram na conta.</div>` : ''}
+      ${r.check ? (r.check.ok ? `<div class="small mute" style="margin-bottom:12px">PDF conferido: a soma dos ${r.check.count} lançamentos fecha com o saldo do próprio extrato.</div>` : `<div class="alert" style="margin-bottom:12px"><strong>Atenção:</strong> a soma dos lançamentos lidos (${brl(r.check.sum)}) não fecha com o saldo do PDF (${brl(r.check.expected)}). Algum lançamento pode não ter sido lido. Confira antes de seguir.</div>`) : ''}
       ${r.acct === 'cartao' ? '' : banner(rec, true)}
       <div class="card" style="margin:12px 0"><div class="line"><span>Lançamentos novos</span><strong>${r.added}</strong></div><div class="line"><span>Categorizados sozinhos</span><strong>${r.auto}</strong></div><div class="line"><span>Já existiam (ignorados)</span><strong>${r.duplicates}</strong></div>${r.before ? `<div class="line"><span>Antes do saldo inicial (ignorados)</span><strong>${r.before}</strong></div>` : ''}${r.confirmedManual ? `<div class="line"><span>Anotados por você e confirmados</span><strong>${r.confirmedManual}</strong></div>` : ''}<div class="line"><span>Esperando você</span><strong style="color:var(--amber-d)">${n}</strong></div></div>
       <div class="grid" style="gap:8px">${n ? `<button class="btn primary" style="height:50px" data-act="close" data-go="revisar">Revisar ${n === 1 ? 'o 1' : 'os ' + n} agora</button>` : ''}<button class="btn" data-act="close">${n ? 'Deixar para depois' : 'Fechar'}</button></div></div></div>`;
@@ -351,7 +365,7 @@ function render() {
     <main>${body()}</main>
     <nav class="bottomnav" aria-label="Seções">${nav()}</nav>
     <button class="fab" data-act="add" aria-label="Novo gasto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Gasto</button>
-    <input type="file" id="file" accept=".ofx,.csv,.txt,text/csv,text/plain,application/x-ofx,application/octet-stream" hidden>
+    <input type="file" id="file" accept=".pdf,.ofx,.csv,.txt,application/pdf,text/csv,text/plain,application/x-ofx,application/octet-stream" hidden>
     ${modalHTML()}</div>`;
   document.title = 'Conciliação — OIKONOMIA';
   setSync(window.__sync || '');
@@ -457,8 +471,8 @@ document.addEventListener('change', async (e) => {
   const t = e.target;
   if (t.id === 'file' && t.files[0]) {
     const f = t.files[0]; const asCard = document.getElementById('asCard')?.checked;
-    const text = await readFileText(f); t.value = '';
-    await importText(text, f.name, asCard);
+    t.value = '';
+    await importFile(f, asCard);
   } else if (t.id === 'bfile' && t.files[0]) {
     try { const s = JSON.parse(await readFileText(t.files[0])); if (!s.txns || !s.baseline) throw new Error('arquivo inválido'); commit(s, 'Cópia restaurada'); } catch { toast('Esse arquivo não é uma cópia deste app.'); }
   } else if (t.dataset?.selKey) {
@@ -479,8 +493,7 @@ async function takeSharedFile() {
     const name = decodeURIComponent(res.headers.get('x-file-name') || 'extrato');
     const blob = await res.blob();
     await cache.delete('shared-file');
-    const text = await readFileText(new File([blob], name));
-    await importText(text, name, false);
+    await importFile(new File([blob], name, { type: blob.type }), false);
   } catch { /* nada compartilhado */ }
 }
 
