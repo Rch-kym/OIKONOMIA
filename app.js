@@ -6,6 +6,9 @@ import { currentBalance, monthPlan, monthView, nextFaturaDue, reconcile } from '
 import { forecast, podeGastar } from './src/forecast.js';
 import { coverage, isSalary, monthItems, payWindow } from './src/recurring.js';
 import { audit, keywordFor, matchPreview, suggestFixed } from './src/audit.js';
+import { filterTxns, hasFilter } from './src/filter.js';
+import { localAsk, AJUDA } from './src/local.js';
+import { DEFAULT_MODEL, applyTool, ask as askAI } from './src/assistant.js';
 import { pullState, pushState } from './src/sheets.js';
 import { parsePDF } from './src/pdf.js';
 import { MESES, addMonths, brl, ddmm, isoDate, monthOf, round2 } from './src/util.js';
@@ -21,6 +24,10 @@ let view = location.hash.replace('#/', '') || 'inicio';
 let monthYM = null;
 let modal = null; // { type, ... }
 let filter = 'todos';
+let fx = { q: '', from: '', to: '', cat: '', type: '', acct: '', status: '', min: '', max: '', sort: 'date' };
+const AI_KEY = 'conc-ai-v1';
+const aiCfg = () => { try { return JSON.parse(localStorage.getItem(AI_KEY) || '{}'); } catch { return {}; } };
+let chat = { history: [], log: [], pending: [], busy: false };
 const picked = {}; // categoria escolhida por grupo de revisão
 
 const $app = document.getElementById('app');
@@ -340,14 +347,45 @@ function mes() {
     ${v.dizimo ? `<br>Dízimo automático de ${ddmm(v.dizimo.due)}: ${brl(v.dizimo.amount)}${v.dizimo.paid ? ' (já pago)' : ''}.` : ''}</div>`;
 }
 
-function lancamentos() {
-  const list = state.txns.filter((t) => (filter === 'todos' ? true : filter === 'revisar' ? t.status === 'review' : t.acct === filter)).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id)).slice(0, 300);
-  const chips = [['todos', 'Todos'], ['revisar', 'Revisar'], ['banco', 'Conta'], ['cartao', 'Cartão'], ['dinheiro', 'Dinheiro']];
-  return `<div class="pagehead"><div><div class="small mute">${state.txns.length} no total</div><h1>Lançamentos</h1></div></div>
-  <div class="chips" style="margin-bottom:14px">${chips.map(([k, l]) => `<button class="chip" aria-pressed="${filter === k}" data-act="filter" data-f="${k}">${l}</button>`).join('')}</div>
-  <div class="card tight">${list.length ? list.map((t) => `<button class="line" style="width:100%;background:none;border:0;border-bottom:1px solid var(--line2);text-align:left;cursor:pointer" data-act="edit" data-id="${t.id}">
+function listaExtrato() {
+  const r = filterTxns(state, fx); const shown = r.list.slice(0, 300);
+  const rows = shown.length ? shown.map((t) => `<button class="line" style="width:100%;background:none;border:0;border-bottom:1px solid var(--line2);text-align:left;cursor:pointer" data-act="edit" data-id="${t.id}">
     <span style="min-width:0"><span class="small mute">${ddmm(t.date)} · ${esc(ACCT[t.acct])}${t.rec ? ' · previsto' : ''}</span><br><span style="font-weight:600">${esc(t.desc)}</span><br>${t.status === 'review' ? '<span class="pill warn">revisar</span>' : `<span class="small mute">${esc(t.cat || '')}</span>`}</span>
-    <strong class="num ${t.amount < 0 ? 'neg' : 'pos'}" style="white-space:nowrap">${brl(t.amount)}</strong></button>`).join('') : '<div class="empty">Nada por aqui. Importe um extrato para começar.</div>'}</div>`;
+    <strong class="num ${t.amount < 0 ? 'neg' : 'pos'}" style="white-space:nowrap">${brl(t.amount)}</strong></button>`).join('') : `<div class="empty">${hasFilter(fx) ? 'Nenhum lançamento com esses filtros.' : 'Nada por aqui. Importe um extrato para começar.'}</div>`;
+  const tot = `<div class="small" style="display:flex;gap:14px;flex-wrap:wrap;margin:0 0 10px"><span><b>${r.count}</b> lançamento${r.count === 1 ? '' : 's'}${r.count > 300 ? ' (mostrando 300)' : ''}</span><span class="pos">Entradas ${brl(r.entradas)}</span><span class="neg">Saídas ${brl(r.saidas)}</span><span>Saldo do filtro <b class="num">${brl(r.total)}</b></span></div>`;
+  return tot + `<div class="card tight">${rows}</div>`;
+}
+function periodo(kind) {
+  const t = today(); const ym = monthOf(t);
+  if (kind === 'mes') return { from: ym + '-01', to: ym + '-31' };
+  if (kind === 'ant') { const p = addMonths(ym, -1); return { from: p + '-01', to: p + '-31' }; }
+  if (kind === '30') { const d = new Date(t + 'T12:00:00'); d.setDate(d.getDate() - 30); return { from: isoDate(d), to: t }; }
+  return { from: '', to: '' };
+}
+function lancamentos() {
+  const cats = [...new Set([...CATS_OUT, ...CATS_IN])];
+  const opt = (v, l, cur) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(l)}</option>`;
+  const sel = (id, cur, list) => `<select class="field" id="${id}" data-fx="${id.slice(1)}">${list.map(([v, l]) => opt(v, l, cur)).join('')}</select>`;
+  const open = hasFilter({ ...fx, q: '' }) || fx.sort !== 'date';
+  return `<div class="pagehead"><div><div class="small mute">${state.txns.length} no total</div><h1>Extrato</h1></div></div>
+  <div class="card" style="margin-bottom:14px">
+    <input class="field" id="fq" data-fx="q" type="search" placeholder="Buscar por nome, categoria ou valor (ex.: ifood, 68,50)" value="${esc(fx.q)}" autocomplete="off" style="margin:0">
+    <div class="chips" style="margin:10px 0 0">${[['', 'Todo o período'], ['mes', 'Este mês'], ['ant', 'Mês passado'], ['30', 'Últimos 30 dias']].map(([k, l]) => `<button class="chip" data-act="fx-per" data-k="${k}" aria-pressed="${(k === '' ? !fx.from && !fx.to : JSON.stringify(periodo(k)) === JSON.stringify({ from: fx.from, to: fx.to }))}">${l}</button>`).join('')}
+      <button class="chip" data-act="fx-rev" aria-pressed="${fx.status === 'review'}">Só para revisar</button></div>
+    <details ${open ? 'open' : ''} style="margin-top:10px"><summary class="small" style="cursor:pointer;color:var(--primary);font-weight:600">Mais filtros</summary>
+      <div class="grid g3" style="gap:10px;margin-top:10px">
+        <div><label class="lab" for="ftype">Tipo</label>${sel('ftype', fx.type, [['', 'Entradas e saídas'], ['out', 'Só saídas'], ['in', 'Só entradas']])}</div>
+        <div><label class="lab" for="facct">Conta</label>${sel('facct', fx.acct, [['', 'Todas'], ['banco', 'Conta'], ['cartao', 'Cartão'], ['dinheiro', 'Dinheiro']])}</div>
+        <div><label class="lab" for="fcat">Categoria</label>${sel('fcat', fx.cat, [['', 'Todas'], ...cats.map((c) => [c, c])])}</div>
+        <div><label class="lab" for="fstatus">Situação</label>${sel('fstatus', fx.status, [['', 'Todas'], ['review', 'Para revisar'], ['ok', 'Já categorizados'], ['rec', 'Baixa de conta fixa']])}</div>
+        <div><label class="lab" for="ffromd">De</label><input class="field" id="ffromd" data-fx="from" type="date" value="${fx.from}"></div>
+        <div><label class="lab" for="ftod">Até</label><input class="field" id="ftod" data-fx="to" type="date" value="${fx.to}"></div>
+        <div><label class="lab" for="fmin">Valor a partir de (R$)</label><input class="field" id="fmin" data-fx="min" inputmode="decimal" value="${esc(fx.min)}"></div>
+        <div><label class="lab" for="fmax">Valor até (R$)</label><input class="field" id="fmax" data-fx="max" inputmode="decimal" value="${esc(fx.max)}"></div>
+        <div><label class="lab" for="fsort">Ordenar por</label>${sel('fsort', fx.sort, [['date', 'Data (mais novo primeiro)'], ['value', 'Valor (maior primeiro)']])}</div>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn sm ghost" data-act="fx-clear">Limpar filtros</button></div></details></div>
+  <div id="lista">${listaExtrato()}</div>`;
 }
 
 function ajustes() {
@@ -372,6 +410,10 @@ function ajustes() {
       <div class="row" style="margin-top:12px"><button class="btn primary" data-act="save-cfg">Salvar</button></div></div>
   </div>
   <div class="grid">
+    <div class="card"><h2>Assistente</h2><p class="small mute">O botão ✦ já funciona de graça, sem internet: ele entende comandos como "marca tudo do iFood como Alimentação" ou "quanto gastei com mercado". <b>Opcional:</b> para conversa livre, cole uma chave de API da Anthropic. Ela fica só neste aparelho, o uso é cobrado na sua conta e os dados consultados são enviados à Anthropic. Sem chave, nada sai do seu aparelho.</p>
+      <label class="lab" for="aik">Chave de API</label><input class="field" id="aik" type="password" autocomplete="off" placeholder="${aiCfg().key ? 'chave salva neste aparelho' : 'sk-ant-...'}">
+      <label class="lab" for="aim">Modelo</label><input class="field" id="aim" value="${esc(aiCfg().model || DEFAULT_MODEL)}">
+      <div class="row" style="margin-top:10px"><button class="btn primary" data-act="ai-save">Salvar</button>${aiCfg().key ? '<button class="btn ghost" data-act="ai-clear">Remover chave</button>' : ''}</div></div>
     <div class="card"><h2>Planilha do Google</h2><p class="small mute">Opcional. Guarda uma cópia legível na planilha e permite abrir em outro aparelho.</p>
       <label class="lab" for="su">Endereço do Apps Script</label><input class="field" id="su" value="${esc(s.url || '')}" placeholder="https://script.google.com/macros/s/…/exec">
       <label class="lab" for="st">Senha (token)</label><input class="field" id="st" type="password" value="${esc(s.token || '')}">
@@ -398,7 +440,7 @@ function modalHTML() {
       ${r.rebased ? `<div class="alert" style="margin-bottom:12px">Saldo inicial ajustado para <strong>${brl(r.rebased.amount)}</strong> em ${ddmm(r.rebased.date)}, como diz o extrato. Os lançamentos anteriores a essa data não entram na conta.</div>` : ''}
       ${r.check ? (r.check.ok ? `<div class="small mute" style="margin-bottom:12px">PDF conferido: a soma dos ${r.check.count} lançamentos fecha com o saldo do extrato${r.check.days ? ` e com os ${r.check.days} saldos diários` : ''}.</div>` : `<div class="alert" style="margin-bottom:12px"><strong>Atenção:</strong> a soma dos lançamentos lidos (${brl(r.check.sum)}) não fecha com o saldo do PDF (${brl(r.check.expected)})${r.check.badDays?.length ? ` ou com o saldo dos dias ${r.check.badDays.map((d) => ddmm(d)).join(', ')}` : ''}. Algum lançamento pode não ter sido lido. Confira antes de seguir.</div>`) : ''}
       ${r.acct === 'cartao' ? '' : banner(rec, true)}
-      <div class="card" style="margin:12px 0"><div class="line"><span>Lançamentos novos</span><strong>${r.added}</strong></div><div class="line"><span>Categorizados sozinhos</span><strong>${r.auto}</strong></div><div class="line"><span>Já existiam (ignorados)</span><strong>${r.duplicates}</strong></div>${r.before ? `<div class="line"><span>Antes do saldo inicial (ignorados)</span><strong>${r.before}</strong></div>` : ''}${r.confirmedManual ? `<div class="line"><span>Anotados por você e confirmados</span><strong>${r.confirmedManual}</strong></div>` : ''}<div class="line"><span>Esperando você</span><strong style="color:var(--amber-d)">${n}</strong></div></div>
+      <div class="card" style="margin:12px 0"><div class="line"><span>Lançamentos novos</span><strong>${r.added}</strong></div><div class="line"><span>Categorizados sozinhos</span><strong>${r.auto}</strong></div><div class="line"><span>Já existiam (ignorados)</span><strong>${r.duplicates}</strong></div>${r.removed && r.removed.length ? `<div class="line"><span>Removidos (não constam mais no extrato do banco)</span><strong>${r.removed.length}</strong></div>` : ''}${r.before ? `<div class="line"><span>Antes do saldo inicial (ignorados)</span><strong>${r.before}</strong></div>` : ''}${r.confirmedManual ? `<div class="line"><span>Anotados por você e confirmados</span><strong>${r.confirmedManual}</strong></div>` : ''}<div class="line"><span>Esperando você</span><strong style="color:var(--amber-d)">${n}</strong></div></div>
       <div class="grid" style="gap:8px">${n ? `<button class="btn primary" style="height:50px" data-act="close" data-go="revisar">Revisar ${n === 1 ? 'o 1' : 'os ' + n} agora</button>` : ''}<button class="btn" data-act="close">${n ? 'Deixar para depois' : 'Fechar'}</button></div></div></div>`;
   }
   if (modal.type === 'add') {
@@ -422,6 +464,15 @@ function modalHTML() {
       <label class="lab" for="sd1">O que é</label><input class="field" id="sd1" placeholder="ex.: celular novo, 13º">
       <label class="lab" for="sdt">Data</label><input class="field" id="sdt" type="date" value="${today()}">
       <div class="row" style="margin-top:12px"><button class="btn primary" data-act="sim-save">Simular</button><button class="btn" data-act="close">Cancelar</button></div></div></div>`;
+  }
+  if (modal.type === 'chat') {
+    const cfg = aiCfg();
+    const bub = (m) => m.role === 'user' ? `<div class="bub me">${esc(m.text)}</div>` : m.role === 'err' ? `<div class="bub err">${esc(m.text)}</div>` : `<div class="bub ai">${esc(m.text).replace(/\n/g, '<br>')}</div>`;
+    const props = chat.pending.map((p, i) => `<div class="prop"><div class="small"><b>Proposta</b></div><div class="small">${esc(p.label)}</div><div class="row" style="margin-top:8px"><button class="btn sm primary" data-act="prop-ok" data-i="${i}">Aplicar</button><button class="btn sm ghost" data-act="prop-no" data-i="${i}">Descartar</button></div></div>`).join('');
+    const body = `<div id="chatlog" class="chatlog">${chat.log.length ? chat.log.map(bub).join('') : `<div class="bub ai">Oi! Sou o assistente do app. Funciono sem internet e sem custo.<br><br>${esc(AJUDA).replace(/\n/g, '<br>')}</div>`}${chat.busy ? '<div class="bub ai mute">pensando…</div>' : ''}${props}</div>
+        <div class="row" style="gap:8px;flex-wrap:nowrap;margin-top:10px"><input class="field" id="chatin" placeholder="Escreva um comando" autocomplete="off" style="margin:0" ${chat.busy ? 'disabled' : ''}><button class="btn primary" data-act="chat-send" ${chat.busy ? 'disabled' : ''}>Enviar</button></div>
+        <div class="tiny mute" style="margin-top:8px">${cfg.key ? 'Conversa livre ligada (usa sua chave de API).' : 'Modo local: só entende os comandos acima.'} Só muda algo depois que você toca em Aplicar.</div>`;
+    return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Assistente"><div class="between"><h2 style="font-size:20px">Assistente</h2><div class="row" style="gap:6px">${chat.log.length ? '<button class="btn sm ghost" data-act="chat-new">Nova conversa</button>' : ''}<button class="btn sm" data-act="close">Fechar</button></div></div>${body}</div></div>`;
   }
   if (modal.type === 'fixa') {
     const d = modal.draft; const pv = matchPreview(state, d.match, d.type);
@@ -462,6 +513,7 @@ function render() {
     <div class="mobilebrand"><div class="brand"><img src="icons/icon-192.png" alt=""><div><b>OIKONOMIA</b><span>Conciliação <i data-s="" class="syncdot"></i></span></div></div></div>
     <main>${body()}</main>
     <nav class="bottomnav" aria-label="Seções">${nav()}</nav>
+    <button class="fab ai" data-act="chat-open" aria-label="Abrir o assistente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></button>
     <button class="fab" data-act="add" aria-label="Novo gasto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Gasto</button>
     <input type="file" id="file" accept=".pdf,.ofx,.csv,.txt,application/pdf,text/csv,text/plain,application/x-ofx,application/octet-stream" hidden>
     ${modalHTML()}</div>`;
@@ -500,6 +552,26 @@ const actions = {
   'fixa-unskip': (el) => commit(setSkip(state, el.dataset.id, el.dataset.due, false), 'Voltou a valer'),
   'fatura-save': (el) => { const v = numRaw('fat'); if (!(v > 0)) return toast('Digite o valor da fatura.'); commit(setFatura(state, el.dataset.due, v), 'Fatura salva'); },
   'fatura-clear': (el) => commit(setFatura(state, el.dataset.due, 0), 'Voltou à estimativa'),
+  'fx-per': (el) => { Object.assign(fx, periodo(el.dataset.k)); render(); },
+  'fx-rev': () => { fx.status = fx.status === 'review' ? '' : 'review'; render(); },
+  'fx-clear': () => { fx = { q: '', from: '', to: '', cat: '', type: '', acct: '', status: '', min: '', max: '', sort: 'date' }; render(); },
+  'ai-save': () => { const k = document.getElementById('aik').value.trim(); const m = document.getElementById('aim').value.trim(); const c = aiCfg(); if (k) c.key = k; c.model = m || DEFAULT_MODEL; try { localStorage.setItem(AI_KEY, JSON.stringify(c)); } catch { /* sem armazenamento */ } toast('Assistente configurado'); render(); },
+  'ai-clear': () => { try { localStorage.removeItem(AI_KEY); } catch { /* ok */ } toast('Chave removida'); render(); },
+  'chat-open': () => { modal = { type: 'chat' }; render(); setTimeout(() => { const l = document.getElementById('chatlog'); if (l) l.scrollTop = l.scrollHeight; document.getElementById('chatin')?.focus(); }, 30); },
+  'chat-new': () => { chat = { history: [], log: [], pending: [], busy: false }; render(); },
+  'chat-send': async () => {
+    const inp = document.getElementById('chatin'); const text = inp?.value.trim(); if (!text || chat.busy) return;
+    chat.log.push({ role: 'user', text }); chat.busy = true; render(); scrollChat();
+    const cfg = aiCfg();
+    if (!cfg.key) { const r = localAsk(state, text, today()); chat.pending.push(...r.proposals); chat.log.push({ role: 'ai', text: r.text }); chat.busy = false; render(); scrollChat(); document.getElementById('chatin')?.focus(); return; }
+    try {
+      const r = await askAI({ state, history: [...chat.history, { role: 'user', content: text }], apiKey: cfg.key, model: cfg.model, today: today() });
+      chat.history = r.history; chat.pending.push(...r.proposals); chat.log.push({ role: 'ai', text: r.text || (r.proposals.length ? 'Preparei estas mudanças. Confira abaixo.' : 'Sem resposta.') });
+    } catch (e) { chat.log.push({ role: 'err', text: e.message || 'Não consegui falar com o assistente.' }); chat.history = chat.history.slice(); }
+    chat.busy = false; render(); scrollChat(); document.getElementById('chatin')?.focus();
+  },
+  'prop-ok': (el) => { const p = chat.pending[Number(el.dataset.i)]; if (!p) return; const r = applyTool(state, p.name, p.input); chat.pending.splice(Number(el.dataset.i), 1); chat.log.push({ role: 'ai', text: '✓ ' + r.msg }); chat.history.push({ role: 'user', content: `[app] O usuário aplicou: ${p.label}` }, { role: 'assistant', content: [{ type: 'text', text: 'Anotado.' }] }); commit(r.state, r.msg); scrollChat(); },
+  'prop-no': (el) => { const p = chat.pending.splice(Number(el.dataset.i), 1)[0]; if (p) chat.history.push({ role: 'user', content: `[app] O usuário descartou: ${p.label}` }, { role: 'assistant', content: [{ type: 'text', text: 'Ok, descartado.' }] }); render(); scrollChat(); },
   'rev-mode': (el) => { revMode = el.dataset.v; render(); },
   'pick-cat': (el) => { picked[el.dataset.key] = el.dataset.cat; render(); },
   confirm: (el) => {
@@ -585,12 +657,20 @@ const actions = {
 
 document.addEventListener('click', (e) => {
   const v = e.target.closest('[data-view]');
-  if (v) { view = v.dataset.view; location.hash = '#/' + view; window.scrollTo(0, 0); render(); return; }
+  if (v) { if (modal && modal.type === 'chat') modal = null; view = v.dataset.view; location.hash = '#/' + view; window.scrollTo(0, 0); render(); return; }
   if (e.target.classList?.contains('scrim') && modal && modal.type !== 'import') { modal = null; render(); return; }
   const a = e.target.closest('[data-act]');
   if (!a || a.tagName === 'INPUT') return;
   actions[a.dataset.act]?.(a, e);
 });
+function scrollChat() { setTimeout(() => { const l = document.getElementById('chatlog'); if (l) l.scrollTop = l.scrollHeight; }, 20); }
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'chatin') { e.preventDefault(); actions['chat-send'](); } });
+// filtros do extrato: atualiza só a lista, sem perder o foco da busca
+function onFx(e) {
+  const k = e.target.dataset?.fx; if (!k || view !== 'lancamentos') return;
+  fx[k] = e.target.value; const l = document.getElementById('lista'); if (l) l.innerHTML = listaExtrato();
+}
+document.addEventListener('input', onFx);
 // guarda o que foi digitado na janela da conta fixa antes de redesenhá-la (ao trocar Saída/Entrada)
 function captureFixa() {
   const g = (id) => document.getElementById(id); const d = modal.draft;
@@ -602,6 +682,7 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('change', async (e) => {
   const t = e.target;
+  if (t.dataset?.fx && view === 'lancamentos') { onFx(e); return; }
   if (t.dataset?.fixaType !== undefined && modal?.type === 'fixa') { captureFixa(); modal.draft.cat = modal.draft.type === 'in' ? 'Outros' : 'Outros'; render(); return; }
   if (t.id === 'file' && t.files[0]) {
     const f = t.files[0]; const asCard = document.getElementById('asCard')?.checked;

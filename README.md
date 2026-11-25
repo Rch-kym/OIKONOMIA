@@ -78,3 +78,8 @@ Edição de previstos e criação de novos dentro do app (hoje só liga/desliga)
 - Conta sem débito no mês: botão **Não teve** (e Desfazer).
 - O app sugere contas fixas que se repetem em meses diferentes (importe 2–3 extratos antigos: servem só de histórico).
 - Aba **Mês**: card **Fechamento** lista o que ainda precisa de atenção (saldo, revisão, fixas atrasadas/diferentes, salário, dízimo, duplicidades).
+
+## Extrato com filtros e Assistente
+- **Extrato**: busca por nome/categoria/valor, períodos rápidos, tipo, conta, categoria, situação, datas, faixa de valor e ordenação, com totais do que está filtrado.
+- **Assistente** (botão ✦): funciona de graça e sem internet, com comandos em português (marcar categoria, quanto gastei, criar conta fixa, duplicados, fatura). Conversa livre é opcional, com chave de API própria. Mudanças viram propostas que você confirma com **Aplicar**.
+- Extrato PDF conferido pela soma passa a mandar no período: lançamentos antigos que não constam mais nele são removidos (a categoria é herdada pelo equivalente novo).

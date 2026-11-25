@@ -76,10 +76,36 @@ export function importParsed(stateIn, parsed, meta = {}) {
     }
     t.id = state.nextId++;
     t.cat = ''; t.kind = t.amount >= 0 ? 'in' : 'out'; t.status = 'review'; t.guess = ''; t.rec = null;
+    t.addedNow = true;
     state.txns.push(t);
     report.added++;
   }
 
+  // O extrato do banco (PDF conferido pela soma) é a verdade do período: lançamentos importados antes que
+  // não aparecem mais nele (mesma data/valor com descrição trocada, por exemplo) são removidos.
+  if (acct === 'banco' && parsed.check && parsed.check.ok && parsed.txns.length) {
+    const ds = parsed.txns.map((p) => p.date).sort();
+    const lo = ds[0] > state.baseline.date ? ds[0] : state.baseline.date, hi = ds[ds.length - 1];
+    const pool = new Map();
+    for (const p of parsed.txns) { const k = keyOf({ date: p.date, amount: round2(p.amount), desc: p.desc, acct }); pool.set(k, (pool.get(k) || 0) + 1); }
+    const orphans = [];
+    for (const t of state.txns) {
+      if (t.acct !== 'banco' || t.manual || t.date < lo || t.date > hi) continue;
+      const k = keyOf(t); const n = pool.get(k) || 0;
+      if (n > 0) pool.set(k, n - 1); else orphans.push(t);
+    }
+    if (orphans.length) {
+      const fresh0 = state.txns.filter((t) => t.addedNow);
+      for (const o of orphans) {
+        const twin = fresh0.find((n) => n.date === o.date && Math.abs(n.amount - o.amount) < 0.005 && !n.cat);
+        if (twin && o.cat) { twin.cat = o.cat; twin.locked = o.locked; twin.status = o.status === 'review' ? 'review' : 'ok'; }
+      }
+      const ids = new Set(orphans.map((o) => o.id));
+      state.txns = state.txns.filter((t) => !ids.has(t.id));
+      report.removed = orphans.map((o) => ({ date: o.date, amount: o.amount, desc: o.desc }));
+    }
+  }
+  for (const t of state.txns) delete t.addedNow;
   if (acct === 'banco' && parsed.balance && parsed.balance.date) state.bank = { amount: parsed.balance.amount, date: parsed.balance.date };
   reclassify(state);
 
