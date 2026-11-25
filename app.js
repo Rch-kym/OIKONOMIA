@@ -183,6 +183,16 @@ function salaryHint(g) {
   return `<div class="small" style="color:var(--primary)">${rows.join('<br>')}</div>`;
 }
 
+const calcRow = (label, val, cls, why) => `<div class="calc"><div class="line" style="border:0;padding-bottom:0"><span>${label}</span><strong class="num ${cls}">${val}</strong></div><div class="tiny mute why">${why}</div></div>`;
+function avulsoTxt(i) {
+  const base = i.base === 'real' ? `Média real dos últimos ${i.dias} dias já revisados: ${brl(i.real)}/dia.` : `Sua previsão de ${brl(i.monthly)}/mês (${brl(i.plan)}/dia)${i.real != null ? `; a média real revisada (${brl(i.real)}/dia) é menor` : ''}.`;
+  return base + (i.pendenteN ? ` ${i.pendenteN} saída(s) sem revisão (${brl(i.pendente)}) ainda não entram.` : '');
+}
+function pendBanner(mp) {
+  const n = state.txns.filter((t) => t.status === 'review').length;
+  if (!n) return '';
+  return `<div class="alert" style="margin-top:10px"><strong>Previsão incompleta:</strong> ${n} lançamentos (${reviewGroups(state).length} estabelecimentos) sem revisão ficam de fora dos cálculos. <button class="btn sm" style="margin-left:6px" data-view="revisar">Revisar</button></div>`;
+}
 function inicio() {
   const t = today();
   const rec = reconcile(state);
@@ -218,16 +228,18 @@ function inicio() {
   ${simCard(sims, fc, base, pg, pgBase)}
   <div class="grid g2">
     <div class="card"><div class="between"><h2>Saldo projetado, próximos 60 dias</h2><span class="small mute">fixos + cartão + gasto médio de ${brl(fc.rate)}/dia</span></div>
-      <div style="margin:8px 0">${chart(fc, base)}</div>${base ? '<div class="small mute">Linha cheia: com a simulação. Tracejada: sem ela.</div>' : ''}${alert}</div>
-    <div class="card"><h2>${MESES[Number(ym.slice(5)) - 1][0].toUpperCase() + MESES[Number(ym.slice(5)) - 1].slice(1)}, como vai ficar</h2>
-      <div style="margin-top:10px">
-      <div class="line"><span>Entradas previstas</span><strong class="num">${brl(mp.totalEntradas)}</strong></div>
-      <div class="line"><span>Contas fixas</span><strong class="num neg">${brl(-mp.totalFixos)}</strong></div>
-      <div class="line"><span>Fatura do cartão (${ddmm(mp.cartaoDue)})</span><strong class="num neg">${brl(-mp.cartao)}</strong></div>
-      <div class="line"><span>Dízimo</span><strong class="num neg">${brl(-mp.dizimo)}</strong></div>
-      <div class="line"><span>Gastos do dia a dia (média)</span><strong class="num neg">${brl(-mp.avulsos)}</strong></div>
-      <div class="line"><strong>Sobra prevista</strong><strong class="num ${mp.sobra < 0 ? 'neg' : 'pos'}">${brl(mp.sobra)}</strong></div></div>
-      ${next7.length ? `<div class="sep"></div><div class="small mute" style="margin-bottom:4px">Próximos 7 dias</div>${next7.map((e) => `<div class="line"><span>${ddmm(e.date)} · ${esc(e.label)}</span><strong class="num ${e.amount < 0 ? 'neg' : 'pos'}">${brl(e.amount)}</strong></div>`).join('')}` : ''}
+      <div style="margin:8px 0">${chart(fc, base)}</div>${base ? '<div class="small mute">Linha cheia: com a simulação. Tracejada: sem ela.</div>' : ''}${alert}
+      ${next7.length ? `<div class="sep"></div><h3 style="margin:0 0 4px;font-size:15px">Próximos 7 dias</h3>${next7.map((e) => `<div class="line"><span>${ddmm(e.date)} · ${esc(e.label)}</span><strong class="num ${e.amount < 0 ? 'neg' : 'pos'}">${brl(e.amount)}</strong></div>`).join('')}` : '<div class="small mute" style="margin-top:12px">Nada previsto para os próximos 7 dias.</div>'}</div>
+    <div class="card"><div class="between"><h2>${MESES[Number(ym.slice(5)) - 1][0].toUpperCase() + MESES[Number(ym.slice(5)) - 1].slice(1)}, como vai ficar</h2><span class="small mute">previsão</span></div>
+      ${pendBanner(mp)}
+      <div style="margin-top:6px">
+      ${calcRow('Entradas previstas', brl(mp.totalEntradas), '', mp.entradas.length ? mp.entradas.map((e) => esc(e.label)).join(', ') + '. Só o que está cadastrado em Fixas.' : 'Nenhuma entrada fixa cadastrada.')}
+      ${calcRow('Contas fixas', brl(-mp.totalFixos), 'neg', `${mp.fixos.length} conta${mp.fixos.length === 1 ? '' : 's'} no débito (aba Fixas).`)}
+      ${calcRow(`Fatura do cartão (${ddmm(mp.cartaoDue)})`, brl(-mp.cartao), 'neg', mp.fatura.manual != null ? 'Valor que você digitou.' : `Estimativa: só as assinaturas (${brl(mp.fatura.totalSubs)}) e compras no cartão (${brl(mp.fatura.totalCompras)}). Digite o valor real na aba Mês quando a fatura fechar.`)}
+      ${calcRow('Dízimo', brl(-mp.dizimo), 'neg', mp.dizimoInfo ? `${Math.round(mp.dizimoInfo.pct * 100)}% de ${brl(mp.dizimoInfo.base)} de entradas já conferidas${mp.dizimoInfo.pendenteN ? `. ${mp.dizimoInfo.pendenteN} entrada(s) sem revisão (${brl(mp.dizimoInfo.pendente)}) ainda não contam.` : '.'}` : 'Dízimo automático desligado.')}
+      ${calcRow('Gastos do dia a dia', brl(-mp.avulsos), 'neg', avulsoTxt(mp.avulsoInfo))}
+      <div class="line" style="border-top:2px solid var(--line);margin-top:4px"><strong>Sobra prevista</strong><strong class="num ${mp.sobra < 0 ? 'neg' : 'pos'}" style="font-size:18px">${brl(mp.sobra)}</strong></div>
+      <div class="tiny mute" style="margin-top:4px">Sobra = entradas − fixas − fatura − dízimo − dia a dia.</div></div>
     </div>
   </div>`;
 }
@@ -261,7 +273,7 @@ function revisar() {
 
 function statusPill(i) {
   if (i.status === 'paga') return i.txn && i.txn.recDiff && i.rec.variable ? `<span class="pill ok">paga ${brl(Math.abs(i.txn.amount))}</span>` : '<span class="pill ok">paga</span>';
-  if (i.status === 'diferente') return `<span class="pill info">paga, ${i.txn.recDiff > 0 ? '+' : '−'}${brl(Math.abs(i.txn.recDiff)).replace('− ', '')}</span>`;
+  if (i.status === 'diferente') return `<span class="pill warn" title="Valor diferente do cadastrado">pago ${brl(Math.abs(i.txn.amount)).replace('− ', '')} (${i.txn.recDiff > 0 ? '+' : '−'}${brl(Math.abs(i.txn.recDiff)).replace('− ', '')})</span>`;
   if (i.status === 'sem débito') return '<span class="pill warn">sem débito</span>';
   if (i.status === 'pulada') return '<span class="pill idle">não teve</span>';
   return '<span class="pill" style="background:var(--line2);color:var(--mute)">a vencer</span>';

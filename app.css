@@ -162,3 +162,10 @@ svg text{font-family:inherit}
 .bub.ai{align-self:flex-start;background:#F1EBFB;color:var(--ink);border-bottom-left-radius:4px}
 .bub.err{align-self:flex-start;background:var(--red-bg);color:var(--red-d)}
 .prop{border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px 12px;box-shadow:0 2px 8px rgba(109,40,217,.08)}
+
+.num,.pill,.line strong{white-space:nowrap}
+.calc{padding:8px 0;border-bottom:1px solid var(--line2)}
+.calc .why{margin-top:2px;line-height:1.35;max-width:46ch}
+.calc .line{padding-top:0}
+
+main{padding-bottom:140px}

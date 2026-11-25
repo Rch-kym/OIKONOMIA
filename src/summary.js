@@ -21,21 +21,27 @@ export function reconcile(state) {
 }
 function addDaysISO(iso, n) { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
 
-export function avulsoRate(state) {
-  // gasto médio diário de verdade (últimos 30 dias de dados); sem histórico suficiente, usa a previsão da planilha.
+// Gasto do dia a dia: só entra o que já foi REVISADO (lançamentos sem revisão ficam de fora até você categorizar),
+// sem transferências, fatura do cartão, dízimo e contas fixas. Usa o maior entre a média real e a sua previsão.
+const NAO_AVULSO = new Set(['Transferências e repasses', 'Fatura do cartão', 'Dízimo e ofertas']);
+export function avulsoInfo(state) {
   const cov = coverage(state);
   const from = addDaysISO(cov, -29);
-  const startData = state.baseline.date;
-  const span = Math.min(30, diffDays(cov, startData));
+  const span = Math.min(30, diffDays(cov, state.baseline.date));
   const monthly = state.config.avulsosMensal ?? 400;
-  if (span < 20) return round2(monthly / 30);
-  let sum = 0;
+  const plan = round2(monthly / 30);
+  let sum = 0, pend = 0, pendN = 0;
   for (const t of state.txns) {
-    if (t.acct !== 'banco' || t.kind !== 'out' || t.rec || t.date < from || t.date > cov) continue;
-    sum += -t.amount;
+    if (t.acct !== 'banco' || t.amount >= 0 || t.rec || t.date < from || t.date > cov || t.kind === 'cardpay' || t.kind === 'transfer') continue;
+    if (t.status === 'review') { pend -= t.amount; pendN++; continue; }
+    if (NAO_AVULSO.has(t.cat)) continue;
+    sum -= t.amount;
   }
-  return round2(sum / span);
+  const real = span >= 20 ? round2(sum / span) : null;
+  const rate = real != null && real > plan ? real : plan;
+  return { rate, real, plan, monthly, base: real != null && real > plan ? 'real' : 'plano', pendente: round2(pend), pendenteN: pendN, dias: span };
 }
+export function avulsoRate(state) { return avulsoInfo(state).rate; }
 
 // Fatura que vence em dueISO: assinaturas (recorrentes no cartão) + compras no cartão.
 export function fatura(state, dueISO) {
@@ -65,13 +71,18 @@ export function dizimoFor(state, ym) {
   if (!state.config.dizimoAuto) return null;
   const due = endOfMonth(ym);
   let income = 0;
-  for (const t of state.txns) if (t.acct === 'banco' && t.kind === 'in' && t.date.startsWith(ym) && t.cat !== 'Transferências e repasses') income += t.amount;
+  let pend = 0, pendN = 0;
+  for (const t of state.txns) {
+    if (!(t.acct === 'banco' && t.kind === 'in' && t.date.startsWith(ym) && t.cat !== 'Transferências e repasses')) continue;
+    if (t.status === 'review') { pend += t.amount; pendN++; continue; }
+    income += t.amount;
+  }
   const cov = coverage(state);
   for (const { rec, due: d } of occurrences(state, addMonths(ym, -0) + '-00', due)) {
     if (rec.type === 'in' && d > cov && !state.txns.some((t) => t.rec === rec.id && t.recDue === d) && rec.cat !== 'Vale Alimentação') income += rec.amount;
   }
   const paid = state.txns.find((t) => t.acct === 'banco' && t.amount < 0 && t.date.startsWith(ym) && /dizimo|oferta/.test(t.desc.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')));
-  return { due, amount: round2(income * (state.config.dizimoPct ?? 0.1)), paid: !!paid };
+  return { due, amount: round2(income * (state.config.dizimoPct ?? 0.1)), paid: !!paid, base: round2(income), pct: state.config.dizimoPct ?? 0.1, pendente: round2(pend), pendenteN: pendN };
 }
 
 export function monthView(state, ym, today) {
@@ -115,5 +126,5 @@ export function monthPlan(state, ym) {
   const totalEntradas = sum(entradas);
   const totalFixos = sum(fixos);
   const dizimo = dz ? dz.amount : 0;
-  return { ym, entradas, fixos, totalEntradas, totalFixos, cartao: f.total, cartaoDue: dueISO, dizimo, avulsos, sobra: round2(totalEntradas - totalFixos - f.total - dizimo - avulsos) };
+  return { ym, entradas, fixos, totalEntradas, totalFixos, cartao: f.total, cartaoDue: dueISO, fatura: f, dizimo, dizimoInfo: dz, avulsos, avulsoInfo: avulsoInfo(state), sobra: round2(totalEntradas - totalFixos - f.total - dizimo - avulsos) };
 }
