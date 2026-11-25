@@ -3,7 +3,7 @@
 import { CATS_IN, CATS_OUT } from './rules.js';
 import { filterTxns } from './filter.js';
 import { reviewGroups } from './ledger.js';
-import { monthView, currentBalance, nextFaturaDue } from './summary.js';
+import { monthPlan, monthView, currentBalance, nextFaturaDue } from './summary.js';
 import { podeGastar } from './forecast.js';
 import { audit } from './audit.js';
 import { addMonths, brl, merchantKey, monthOf } from './util.js';
@@ -92,7 +92,7 @@ export function localAsk(state, textRaw, today) {
   }
 
   // quanto gastei / recebi
-  if (/(quanto|total).*(gast|recebi|entrou|saiu)/.test(n) || /^gastos? (com|em|de)/.test(n)) {
+  if ((/(quanto|total).*(gast|recebi|entrou|saiu)/.test(n) && !/(posso|pode)/.test(n)) || /^gastos? (com|em|de)/.test(n)) {
     const p = period(n, today); const recebeu = /(recebi|entrou)/.test(n);
     const q = strip(n.replace(/.*?\b(?:com|em|no|na|de|do|da|nos|nas)\s+/, '')).replace(/\b(gastei|recebi|gastos?|este|neste)\b/g, '').trim();
     const cat = q ? findCat(q) : null;
@@ -112,11 +112,18 @@ export function localAsk(state, textRaw, today) {
   }
 
   // saldo / resumo / pode gastar
-  if (/(quanto posso|posso gastar|sobra)/.test(n)) { const g = podeGastar(state, today); return out(`Até o fim do mês você pode gastar cerca de ${brl(g.value)} (${brl(g.perDay)} por dia, ${g.daysLeft} dias), já considerando as contas previstas.`); }
+  if (/(vai sobrar|quanto sobra|sobrara|sobra prevista)/.test(n)) {
+    const ym = addMonths(monthOf(today), 1); const mp = monthPlan(state, ym); const nm = ym.slice(5) + '/' + ym.slice(0, 4);
+    return out(`Previsão de ${nm}:\nEntradas ${brl(mp.totalEntradas)} − contas fixas ${brl(mp.totalFixos)} − fatura do cartão ${brl(mp.cartao)} = sobra das contas ${brl(mp.sobraContas)}.\nDepois do dízimo (${brl(mp.dizimo)}) e dos gastos do dia a dia (${brl(mp.avulsos)}), sobra final ${brl(mp.sobra)}.`);
+  }
+  if (/(quanto posso|posso gastar|pode gastar)/.test(n)) {
+    const g = podeGastar(state, today);
+    return out(`Até o fim do mês você pode gastar cerca de ${brl(g.value)} (${brl(g.perDay)} por dia, ${g.daysLeft} dias).\nConta: saldo ${brl(g.balance)}${g.reservado ? ` − ${brl(g.reservado)} do salário do mês que vem, que já caiu mas é para as contas de lá` : ''} − ${brl(g.committed)} que ainda vai sair neste mês.`);
+  }
   if (/(resumo|fechamento|como estou|situacao)/.test(n)) {
     const ym = monthOf(today); const v = monthView(state, ym, today); const a = audit(state, ym, today);
     const att = a.items.filter((i) => i.level !== 'ok' && i.level !== 'info').slice(0, 5).map((i) => `• ${i.title}`).join('\n');
-    return out(`Mês ${ym.slice(5)}/${ym.slice(0, 4)}: entradas ${brl(v.entradas)}, fixos ${brl(v.fixosTotal)}, avulsos ${brl(v.avulsosTotal)}, fatura prevista ${brl(v.fatura.total)}.${att ? `\nAtenção:\n${att}` : '\nTudo em ordem no fechamento.'}`);
+    return out(`Mês ${ym.slice(5)}/${ym.slice(0, 4)}: recebido até agora ${brl(v.entradas)} (só o já revisado), contas fixas ${brl(v.fixosTotal)}, dia a dia ${brl(v.avulsosTotal)}, fatura prevista ${brl(v.fatura.total)}.${att ? `\nAtenção:\n${att}` : '\nTudo em ordem no fechamento.'}`);
   }
   if (/saldo/.test(n)) return out(`Saldo calculado da conta: ${brl(currentBalance(state))}${state.bank ? `. Saldo informado pelo banco em ${state.bank.date.slice(8)}/${state.bank.date.slice(5, 7)}: ${brl(state.bank.amount)}` : ''}.`);
 

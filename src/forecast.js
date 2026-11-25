@@ -1,8 +1,12 @@
 // Projeção do saldo dia a dia e o número "pode gastar até o fim do mês".
 import { avulsoRate, bankBalanceAt, dizimoFor, fatura } from './summary.js';
-import { coverage, occurrences } from './recurring.js';
+import { coverage, isSalary, occurrences } from './recurring.js';
 import { addDays, addMonths, dateInMonth, diffDays, endOfMonth, monthOf, round2 } from './util.js';
 
+// Salário que cai a partir do dia "salaryFrom" (ex.: 26) é o salário do mês seguinte: não é dinheiro livre deste mês.
+function salarioDoProximoMes(state, rec, due, today) {
+  return isSalary(rec) && due.slice(0, 7) === monthOf(today) && Number(due.slice(8)) >= (state.config?.salaryFrom ?? 26);
+}
 function futureEvents(state, fromExclusive, toInclusive, opts = {}) {
   const ev = new Map(); // data -> [{label, amount}]
   const push = (d, label, amount) => { if (!ev.has(d)) ev.set(d, []); ev.get(d).push({ label, amount: round2(amount) }); };
@@ -11,12 +15,15 @@ function futureEvents(state, fromExclusive, toInclusive, opts = {}) {
   for (const { rec, due } of occurrences(state, fromExclusive, toInclusive)) {
     if (state.txns.some((t) => t.rec === rec.id && t.recDue === due)) continue;
     if (rec.type === 'in' && rec.cat === 'Vale Alimentação') continue;
+    if (opts.livre && salarioDoProximoMes(state, rec, due, opts.livre)) { opts.livre_skip = (opts.livre_skip || 0) + rec.amount; continue; }
     push(due, rec.desc, rec.type === 'in' ? rec.amount : -rec.amount);
   }
   // dízimo
   for (let ym = monthOf(fromExclusive); ym <= monthOf(toInclusive); ym = addMonths(ym, 1)) {
     const dz = dizimoFor(state, ym);
-    if (dz && !dz.paid && dz.amount > 0 && dz.due > fromExclusive && dz.due <= toInclusive) push(dz.due, 'Dízimo (automático)', -dz.amount);
+    // "pode gastar": o dízimo do salário do mês seguinte fica para as contas de lá
+    const amt = dz && opts.livre ? Math.max(0, round2(dz.amount - dz.pct * ((opts.livre_skip || 0) + (opts.reservado || 0)))) : dz?.amount;
+    if (dz && !dz.paid && amt > 0 && dz.due > fromExclusive && dz.due <= toInclusive) push(dz.due, 'Dízimo (automático)', -amt);
   }
   // faturas do cartão
   const due = state.config.cardDueDay ?? 16;
@@ -64,10 +71,19 @@ export function podeGastar(state, today, opts = {}) {
   const cov = coverage(state);
   const eom = endOfMonth(monthOf(today));
   const bal = bankBalanceAt(state, cov);
-  const ev = futureEvents(state, cov, eom, opts);
+  // salário do mês seguinte que já caiu na conta: está no saldo, mas já tem dono (as contas do próximo mês)
+  let reservado = 0;
+  for (const t of state.txns) {
+    if (t.acct !== 'banco' || !t.rec || t.date.slice(0, 7) !== monthOf(today) || t.date > cov) continue;
+    const rec = state.recurring.find((r) => r.id === t.rec);
+    if (rec && salarioDoProximoMes(state, rec, t.date, today)) reservado += t.amount;
+  }
+  reservado = round2(reservado);
+  const o = { ...opts, livre: today, reservado };
+  const ev = futureEvents(state, cov, eom, o);
   let net = 0;
   for (const list of ev.values()) for (const e of list) net += e.amount;
-  const value = round2(bal + net);
+  const value = round2(bal - reservado + net);
   const left = Math.max(1, diffDays(eom, today) + 1);
-  return { value, perDay: round2(value / left), daysLeft: left, balance: bal, committed: round2(-net) };
+  return { value, perDay: round2(value / left), daysLeft: left, balance: bal, committed: round2(-net), reservado };
 }

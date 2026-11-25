@@ -91,10 +91,11 @@ export function monthView(state, ym, today) {
   const fixos = all.filter((i) => i.rec.type === 'out');
   const entradasPrevistas = all.filter((i) => i.rec.type === 'in' && i.rec.cat !== 'Vale Alimentação');
   const avulsos = {};
-  let avulsosTotal = 0;
+  let avulsosTotal = 0, pendente = 0, pendenteN = 0;
   for (const t of state.txns) {
     if (t.acct !== 'banco' || !t.date.startsWith(ym) || t.kind !== 'out' || t.rec) continue;
-    if (t.cat === 'Ignorado') continue;
+    if (t.cat === 'Ignorado' || NAO_AVULSO.has(t.cat)) continue;
+    if (t.status === 'review') { pendente = round2(pendente - t.amount); pendenteN++; continue; }
     const c = t.cat || 'Sem categoria';
     avulsos[c] = round2((avulsos[c] || 0) - t.amount);
     avulsosTotal = round2(avulsosTotal - t.amount);
@@ -106,7 +107,7 @@ export function monthView(state, ym, today) {
     fixos, entradasPrevistas,
     fixosTotal: round2(fixos.filter((i) => i.status !== 'pulada').reduce((s, i) => s + i.planned, 0)),
     fixosAPagar: round2(fixos.filter((i) => i.status !== 'paga' && i.status !== 'diferente' && i.status !== 'pulada').reduce((s, i) => s + i.planned, 0)),
-    avulsos, avulsosTotal, avulsosPrevisto: state.config.avulsosMensal ?? 400,
+    avulsos, avulsosTotal, pendente, pendenteN, avulsosPrevisto: state.config.avulsosMensal ?? 400,
     entradas: round2(entradas),
     fatura: fatura(state, dueISO),
     dizimo: dizimoFor(state, ym),
@@ -127,5 +128,5 @@ export function monthPlan(state, ym) {
   const totalEntradas = sum(entradas);
   const totalFixos = sum(fixos);
   const dizimo = dz ? dz.amount : 0;
-  return { ym, entradas, fixos, totalEntradas, totalFixos, cartao: f.total, cartaoDue: dueISO, fatura: f, dizimo, dizimoInfo: dz, avulsos, avulsoInfo: avulsoInfo(state), sobra: round2(totalEntradas - totalFixos - f.total - dizimo - avulsos) };
+  return { ym, entradas, fixos, totalEntradas, totalFixos, cartao: f.total, cartaoDue: dueISO, fatura: f, dizimo, dizimoInfo: dz, avulsos, avulsoInfo: avulsoInfo(state), sobraContas: round2(totalEntradas - totalFixos - f.total), sobra: round2(totalEntradas - totalFixos - f.total - dizimo - avulsos) };
 }

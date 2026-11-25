@@ -1,5 +1,5 @@
 // "Nada passa": confere um mês inteiro e diz o que ainda precisa de atenção. Também sugere contas fixas.
-import { coverage, isSalary, monthItems, payWindow } from './recurring.js';
+import { coverage, isSalary, monthItems, payWindow, salaryComp } from './recurring.js';
 import { dizimoFor, fatura, reconcile } from './summary.js';
 import { brl, dateInMonth, diffDays, merchantKey, monthOf, normDesc, round2 } from './util.js';
 
@@ -97,7 +97,8 @@ export function audit(state, ym, today) {
   // 4) salário / entradas fixas
   for (const i of fixed.filter((x) => x.rec.type === 'in' && x.rec.cat !== 'Vale Alimentação')) {
     const w = payWindow(state, i.rec, i.due);
-    const label = isSalary(i.rec) ? `Salário de ${ym.slice(5)}/${ym.slice(0, 4)}` : i.rec.desc;
+    const cm = isSalary(i.rec) ? salaryComp(state, i.rec, i.due) : ym;
+    const label = isSalary(i.rec) ? `Salário de ${cm.slice(5)}/${cm.slice(0, 4)}` : i.rec.desc;
     if (i.status === 'paga' || i.status === 'diferente') add(i.status === 'diferente' ? 'warn' : 'ok', `${label} recebido em ${i.txn.date.slice(8)}/${i.txn.date.slice(5, 7)}`, i.status === 'diferente' ? 'O valor veio diferente do previsto.' : '', { go: 'mes' });
     else if (i.status === 'pulada') continue;
     else if (w && today >= w.from) add(i.due < today ? 'warn' : 'info', `${label} ainda não chegou`, `Janela: ${w.from.slice(8)}/${w.from.slice(5, 7)} a ${w.to.slice(8)}/${w.to.slice(5, 7)}.`, { go: 'mes' });

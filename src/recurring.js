@@ -38,7 +38,14 @@ export const isSalary = (rec) => rec.type === 'in' && rec.cat === 'Salário';
 export function payWindow(state, rec, due) {
   if (!isSalary(rec)) return null;
   const from = Math.max(1, Math.min(28, state.config?.salaryFrom ?? 26));
-  return { from: dateInMonth(addMonths(monthOf(due), -1), from), to: addDays(due, 3) };
+  // dia do salário a partir de salaryFrom (ex.: 28): ele já cai no próprio mês e vale para o mês seguinte
+  const mesmoMes = rec.day >= from;
+  return { from: dateInMonth(mesmoMes ? monthOf(due) : addMonths(monthOf(due), -1), from), to: addDays(due, 3) };
+}
+// Mês a que o salário pertence: se cai a partir do dia salaryFrom, é o salário do mês seguinte.
+export function salaryComp(state, rec, due) {
+  const from = Math.max(1, Math.min(28, state.config?.salaryFrom ?? 26));
+  return rec.day >= from ? addMonths(monthOf(due), 1) : monthOf(due);
 }
 const ruledAs = (state, rec, t) => state.rules.some((r) => r.key === merchantKey(t.desc) && r.cat === rec.cat);
 

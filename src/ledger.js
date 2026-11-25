@@ -49,7 +49,11 @@ export function importParsed(stateIn, parsed, meta = {}) {
   if (parsed.check) report.check = parsed.check;
 
   const existing = new Map();
-  for (const t of state.txns) existing.set(keyOf(t), (existing.get(keyOf(t)) || 0) + 1);
+  for (const t of state.txns) {
+    existing.set(keyOf(t), (existing.get(keyOf(t)) || 0) + 1);
+    // gasto anotado à mão e já confirmado por um extrato: guarda a "chave" da linha do extrato para não duplicar ao reimportar
+    if (t.srcKey) existing.set(t.srcKey, (existing.get(t.srcKey) || 0) + 1);
+  }
   const seenInFile = new Map();
   const histSeen = new Map();
 
@@ -68,11 +72,16 @@ export function importParsed(stateIn, parsed, meta = {}) {
     const occ = (seenInFile.get(k) || 0) + 1;
     seenInFile.set(k, occ);
     if (occ <= (existing.get(k) || 0)) { report.duplicates++; continue; }
+    // compatibilidade: confirmado antes de existir srcKey (mesma conta, data e valor)
+    if (acct === 'banco') {
+      const old = state.txns.find((m) => m.manual && m.confirmed && !m.srcKey && m.acct === 'banco' && m.date === t.date && Math.abs(m.amount - t.amount) < 0.005);
+      if (old) { old.srcKey = k; report.duplicates++; continue; }
+    }
 
     // Se você já tinha anotado este gasto à mão, o extrato só confirma (não duplica).
     if (acct === 'banco') {
       const man = state.txns.find((m) => m.manual && m.acct === 'banco' && !m.confirmed && Math.abs(m.amount - t.amount) < 0.005 && Math.abs(diffDays(m.date, t.date)) <= 3);
-      if (man) { man.confirmed = true; man.date = t.date; man.desc = `${man.desc} (${t.desc})`; report.confirmedManual++; continue; }
+      if (man) { man.confirmed = true; man.date = t.date; man.desc = `${man.desc} (${t.desc})`; man.srcKey = k; report.confirmedManual++; continue; }
     }
     t.id = state.nextId++;
     t.cat = ''; t.kind = t.amount >= 0 ? 'in' : 'out'; t.status = 'review'; t.guess = ''; t.rec = null;
@@ -89,6 +98,7 @@ export function importParsed(stateIn, parsed, meta = {}) {
     const pool = new Map();
     for (const p of parsed.txns) { const k = keyOf({ date: p.date, amount: round2(p.amount), desc: p.desc, acct }); pool.set(k, (pool.get(k) || 0) + 1); }
     const orphans = [];
+    for (const t of state.txns) if (t.srcKey && pool.get(t.srcKey)) pool.set(t.srcKey, pool.get(t.srcKey) - 1);
     for (const t of state.txns) {
       if (t.acct !== 'banco' || t.manual || t.date < lo || t.date > hi) continue;
       const k = keyOf(t); const n = pool.get(k) || 0;

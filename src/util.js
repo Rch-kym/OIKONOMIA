@@ -92,3 +92,10 @@ export function brl(n, opts = {}) {
   return `${v < 0 ? '− ' : ''}R$ ${s}`;
 }
 export function ddmm(iso) { return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`; }
+
+// Valor digitado pela pessoa: aceita 55,90 · 55.90 · 1.234,56 · 1234,56 · 1.234 (milhar) · R$ 10.
+export function moneyInput(raw) {
+  const s = String(raw ?? '').trim().replace(/R\$|\s/gi, '');
+  if (/^\d{1,3}(\.\d{3})+$/.test(s)) return Number(s.replace(/\./g, ''));
+  return brNumber(s);
+}

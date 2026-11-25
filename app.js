@@ -11,7 +11,7 @@ import { localAsk, AJUDA } from './src/local.js';
 import { DEFAULT_MODEL, applyTool, ask as askAI } from './src/assistant.js';
 import { pullState, pushState } from './src/sheets.js';
 import { parsePDF } from './src/pdf.js';
-import { MESES, addMonths, brl, ddmm, isoDate, monthOf, round2 } from './src/util.js';
+import { MESES, addMonths, brl, ddmm, isoDate, moneyInput, monthOf, round2 } from './src/util.js';
 
 const KEY = 'conc-state-v1';
 const CFG_KEY = 'conc-sheets-v1';
@@ -122,7 +122,7 @@ const bang = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-h
 
 function banner(rec, compact = false) {
   if (rec.status === 'ok') {
-    return `<div class="banner ok"><div class="title"><span class="dot">${check}</span>Conciliado: a planilha bate com o banco</div>
+    return `<div class="banner ok"><div class="title"><span class="dot">${check}</span>Conciliado: o app bate com o banco</div>
       <div class="bigs"><div><div class="small mute">Saldo calculado</div><div class="n num">${brl(rec.expected)}</div></div>
       <div><div class="small mute">Saldo no extrato (${ddmm(rec.bank.date)})</div><div class="n num">${brl(rec.bank.amount)}</div></div></div>
       ${compact ? '' : '<div class="small mute">Diferença: <strong class="pos">R$ 0,00</strong></div>'}</div>`;
@@ -139,7 +139,7 @@ function banner(rec, compact = false) {
         ${s.manual ? `<button class="btn primary sm" data-act="to-cash" data-id="${s.id}">Foi em dinheiro: mover para Dinheiro</button>` : ''}
         <button class="btn sm danger" data-act="del" data-id="${s.id}">${s.manual ? 'Foi engano: apagar' : 'Apagar este lançamento'}</button></div></div>`;
     }
-    return `<div class="banner diff"><div class="title"><span class="dot">${bang}</span>Não bate: a planilha tem ${brl(Math.abs(rec.diff))} ${more} que o banco</div>
+    return `<div class="banner diff"><div class="title"><span class="dot">${bang}</span>Não bate: o app tem ${brl(Math.abs(rec.diff))} ${more} que o banco</div>
       <div class="small">Calculado ${brl(rec.expected)} · Extrato ${brl(rec.bank.amount)} (${ddmm(rec.bank.date)})</div>
       <div class="bigs"><div class="n num pos" style="color:var(--red-d)">${brl(-rec.diff)}</div></div>
       <div style="font-weight:600">Achei ${rec.suspects.length ? 'um lançamento que pode explicar' : 'nada que explique'} a diferença</div>${sug}</div>`;
@@ -237,7 +237,7 @@ function inicio() {
       ${groups.length ? `<button class="btn sm" style="margin-top:10px" data-view="revisar">Revisar agora</button>` : ''}</div>
     <div class="card kpi"><div class="label">Pode gastar até o fim do mês</div>
       <div class="value num ${pg.value < 0 ? 'neg' : ''}">${brl(pg.value)}</div>
-      <div class="sub">${pg.value >= 0 ? `cerca de ${brl(pg.perDay)} por dia` : 'o previsto passa do saldo'} · saldo ${brl(pg.balance)}, previsto sair ${brl(pg.committed)}</div></div>
+      <div class="sub">${pg.value >= 0 ? `cerca de ${brl(pg.perDay)} por dia (${pg.daysLeft} dias)` : 'o previsto passa do saldo'}<br>Saldo ${brl(pg.balance)}${pg.reservado ? ` − ${brl(pg.reservado)} do salário do mês que vem (já na conta, não é livre)` : ''}, e ainda vai sair ${brl(pg.committed)} neste mês.</div></div>
   </div>
   ${simCard(sims, fc, base, pg, pgBase)}
   <div class="grid g2">
@@ -250,10 +250,11 @@ function inicio() {
       ${calcRow('Entradas previstas', brl(mp.totalEntradas), '', mp.entradas.length ? mp.entradas.map((e) => esc(e.label)).join(', ') + '. Só o que está cadastrado em Fixas.' : 'Nenhuma entrada fixa cadastrada.')}
       ${calcRow('Contas fixas', brl(-mp.totalFixos), 'neg', `${mp.fixos.length} conta${mp.fixos.length === 1 ? '' : 's'} no débito (aba Fixas).`)}
       ${calcRow(`Fatura do cartão (${ddmm(mp.cartaoDue)})`, brl(-mp.cartao), 'neg', mp.fatura.manual != null ? 'Valor que você digitou.' : `Estimativa: só as assinaturas (${brl(mp.fatura.totalSubs)}) e compras no cartão (${brl(mp.fatura.totalCompras)}). Digite o valor real na aba Mês quando a fatura fechar.`)}
+      <div class="calc" style="background:var(--bg);margin:6px -8px 0;padding:10px 8px;border-radius:10px"><div class="line" style="border:0;padding:0"><strong>Sobra das contas</strong><strong class="num ${mp.sobraContas < 0 ? 'neg' : 'pos'}" style="font-size:18px">${brl(mp.sobraContas)}</strong></div><div class="tiny mute">Entradas − contas fixas − fatura do cartão. É o que sobra só com as contas certas.</div></div>
       ${calcRow('Dízimo', brl(-mp.dizimo), 'neg', mp.dizimoInfo ? `${Math.round(mp.dizimoInfo.pct * 100)}% de ${brl(mp.dizimoInfo.base)} de entradas já conferidas${mp.dizimoInfo.pendenteN ? `. ${mp.dizimoInfo.pendenteN} entrada(s) sem revisão (${brl(mp.dizimoInfo.pendente)}) ainda não contam.` : '.'}` : 'Dízimo automático desligado.')}
       ${calcRow('Gastos do dia a dia', brl(-mp.avulsos), 'neg', avulsoTxt(mp.avulsoInfo, new Date(Number(ym.slice(0, 4)), Number(ym.slice(5)), 0).getDate()))}
-      <div class="line" style="border-top:2px solid var(--line);margin-top:4px"><strong>Sobra prevista</strong><strong class="num ${mp.sobra < 0 ? 'neg' : 'pos'}" style="font-size:18px">${brl(mp.sobra)}</strong></div>
-      <div class="tiny mute" style="margin-top:4px">Sobra = entradas − fixas − fatura − dízimo − dia a dia.</div></div>
+      <div class="line" style="border-top:2px solid var(--line);margin-top:4px"><strong>Sobra final</strong><strong class="num ${mp.sobra < 0 ? 'neg' : 'pos'}" style="font-size:18px">${brl(mp.sobra)}</strong></div>
+      <div class="tiny mute" style="margin-top:4px">Sobra final = sobra das contas − dízimo − gastos do dia a dia.</div></div>
     </div>
   </div>`;
 }
@@ -321,8 +322,8 @@ function fixas() {
     const it = items.get(r.id);
     const tags = [r.variable ? 'valor varia' : '', r.until ? `até ${fmtMonth(r.until)}` : '', r.from && r.from > ym ? `começa em ${fmtMonth(r.from)}` : '', !r.match && !r.card ? 'sem palavra-chave' : ''].filter(Boolean);
     const skip = it && it.status === 'sem débito' ? `<button class="btn sm ghost" data-act="fixa-skip" data-id="${r.id}" data-due="${it.due}">Não teve</button>` : it && it.status === 'pulada' ? `<button class="btn sm ghost" data-act="fixa-unskip" data-id="${r.id}" data-due="${it.due}">Desfazer</button>` : '';
-    return `<div class="line" style="align-items:flex-start"><div style="min-width:0"><div><span class="mute num">${String(r.day).padStart(2, '0')}</span> · <strong>${esc(r.desc)}</strong></div><div class="tiny mute">${esc(r.cat)}${r.match ? ` · extrato: "${esc(r.match)}"` : ''}${tags.length ? ' · ' + tags.join(' · ') : ''}</div></div>
-      <div class="row" style="gap:8px;flex-wrap:nowrap;justify-content:flex-end"><strong class="num">${r.variable ? '~' : ''}${brl(r.amount)}</strong>${it ? statusPill(it) : ''}${skip}<button class="btn sm" data-act="fixa-edit" data-id="${r.id}">Editar</button></div></div>`;
+    return `<div class="line fxrow" style="align-items:flex-start"><div style="min-width:0"><div><span class="mute num">${String(r.day).padStart(2, '0')}</span> · <strong>${esc(r.desc)}</strong></div><div class="tiny mute">${esc(r.cat)}${r.match ? ` · extrato: "${esc(r.match)}"` : ''}${tags.length ? ' · ' + tags.join(' · ') : ''}</div></div>
+      <div class="row fxact" style="gap:8px;justify-content:flex-end"><strong class="num">${r.variable ? '~' : ''}${brl(r.amount)}</strong>${it ? statusPill(it) : ''}${skip}<button class="btn sm" data-act="fixa-edit" data-id="${r.id}">Editar</button></div></div>`;
   };
   const group = (title, hint, list, total) => `<div class="card"><div class="between"><div><h2>${title}</h2><div class="small mute">${hint}</div></div><strong class="num">${brl(total)}</strong></div><div style="margin-top:8px">${list.length ? list.map(row).join('') : '<div class="empty">Nenhuma.</div>'}</div></div>`;
   const sug = suggestFixed(state);
@@ -351,15 +352,15 @@ function mes() {
     <div class="row"><button class="btn sm" data-act="month" data-d="-1" aria-label="Mês anterior">‹</button><button class="btn sm" data-act="month" data-d="1" aria-label="Próximo mês">›</button></div></div>
   ${auditCard(ym)}
   <div class="grid g3">
-    <div class="card"><div class="between"><h2>1 · Fixos</h2><span class="small mute"><a href="#/fixas" data-view="fixas" style="color:inherit">editar em Fixas</a></span></div>
+    <div class="card"><div class="between"><h2>1 · Contas fixas</h2><span class="small mute"><a href="#/fixas" data-view="fixas" style="color:inherit">editar em Fixas</a></span></div>
       <div class="small mute" style="margin:4px 0 8px">O débito no extrato dá baixa sozinho.</div>
-      ${v.fixos.length ? v.fixos.map((i) => `<div class="line"><span>${i.due.slice(8)} · ${esc(i.rec.desc)}</span><span class="row" style="gap:8px;flex-wrap:nowrap"><strong class="num">${brl(i.planned)}</strong>${statusPill(i)}</span></div>`).join('') : '<div class="empty">Nenhum fixo neste mês depois do saldo inicial.</div>'}
+      ${v.fixos.length ? v.fixos.map((i) => `<div class="line"><span>${i.due.slice(8)} · ${esc(i.rec.desc)}</span><span class="row" style="gap:8px;flex-wrap:nowrap"><strong class="num">${brl(i.planned)}</strong>${statusPill(i)}</span></div>`).join('') : '<div class="empty">Nenhuma conta fixa neste mês depois do saldo inicial.</div>'}
       <div class="sep"></div><div class="between"><strong>Total do mês</strong><strong class="num">${brl(v.fixosTotal)}</strong></div>
       ${v.fixosAPagar > 0 ? `<div class="small mute" style="margin-top:4px">Ainda sem baixa: ${brl(v.fixosAPagar)}</div>` : ''}</div>
-    <div class="card"><div class="between"><h2>2 · Avulsos</h2><span class="small mute">vêm do extrato</span></div>
-      <div class="small mute" style="margin:4px 0 8px">Não precisam de cadastro. Previsto na planilha: ${brl(prev)}/mês.</div>
-      ${cats.length ? cats.map(([c, a]) => `<div style="margin-bottom:12px"><div class="between"><span>${esc(c)}</span><strong class="num">${brl(a)}</strong></div><div class="bar"><i class="${a > prev ? 'over' : ''}" style="width:${Math.min(100, (a / prev) * 100).toFixed(0)}%"></i></div></div>`).join('') : '<div class="empty">Sem gastos avulsos neste mês.</div>'}
-      <div class="sep"></div><div class="between"><strong>Até agora</strong><strong class="num">${brl(v.avulsosTotal)} de ${brl(prev)}</strong></div></div>
+    <div class="card"><div class="between"><h2>2 · Dia a dia</h2><span class="small mute">vêm do extrato</span></div>
+      <div class="small mute" style="margin:4px 0 8px">Gastos comuns já revisados. Sua previsão: ${brl(prev)}/mês.</div>
+      ${cats.length ? cats.map(([c, a]) => `<div style="margin-bottom:12px"><div class="between"><span>${esc(c)}</span><strong class="num">${brl(a)}</strong></div><div class="bar"><i class="${a > prev ? 'over' : ''}" style="width:${Math.min(100, (a / prev) * 100).toFixed(0)}%"></i></div></div>`).join('') : '<div class="empty">Nenhum gasto do dia a dia revisado neste mês.</div>'}
+      <div class="sep"></div><div class="between"><strong>Até agora</strong><strong class="num">${brl(v.avulsosTotal)} de ${brl(prev)}</strong></div>${v.pendente ? `<div class="small" style="margin-top:6px;color:var(--amber-d)">Sem revisão: ${brl(v.pendente)} (${v.pendenteN}) não entra no total. <a href="#/revisar" data-view="revisar" style="color:inherit">Revisar</a></div>` : ''}</div>
     <div class="card"><div class="between"><h2>3 · Cartão</h2><span class="small mute">vence ${ddmm(f.due)}</span></div>
       <div class="small mute" style="margin:4px 0 8px">Só pesa no banco no dia do pagamento.</div>
       <div class="line"><span>Assinaturas (${f.subs.length})</span><strong class="num">${brl(f.totalSubs)}</strong></div>
@@ -371,7 +372,7 @@ function mes() {
       <div class="row" style="gap:8px;flex-wrap:nowrap"><input class="field" id="fat" inputmode="decimal" placeholder="${f.manual != null ? String(f.manual).replace('.', ',') : 'do app do cartão'}" style="margin:0"><button class="btn sm primary" data-act="fatura-save" data-due="${f.due}">Salvar</button>${f.manual != null ? `<button class="btn sm ghost" data-act="fatura-clear" data-due="${f.due}">Limpar</button>` : ''}</div>
       <div class="tiny mute" style="margin-top:6px">Quando a fatura fechar, digite o valor aqui. A projeção passa a usar ele no lugar da estimativa.</div></div>
   </div>
-  <div class="card" style="margin-top:16px;font-size:14px;color:var(--ink2)"><strong style="color:var(--ink)">Como as três se somam:</strong> o saldo do banco cai quando fixos e avulsos são debitados, e uma vez só, em ${ddmm(f.due)}, quando o cartão é pago. O "pagamento da fatura" no extrato não conta como gasto novo.
+  <div class="card" style="margin-top:16px;font-size:14px;color:var(--ink2)"><strong style="color:var(--ink)">Como as três se somam:</strong> o saldo do banco cai quando as contas fixas e os gastos do dia a dia são debitados, e uma vez só, em ${ddmm(f.due)}, quando o cartão é pago. O "pagamento da fatura" no extrato não conta como gasto novo.
     ${v.dizimo ? `<br>Dízimo automático de ${ddmm(v.dizimo.due)}: ${brl(v.dizimo.amount)}${v.dizimo.paid ? ' (já pago)' : ''}.` : ''}</div>`;
 }
 
@@ -399,7 +400,7 @@ function lancamentos() {
   <div class="card" style="margin-bottom:14px">
     <input class="field" id="fq" data-fx="q" type="search" placeholder="Buscar por nome, categoria ou valor (ex.: ifood, 68,50)" value="${esc(fx.q)}" autocomplete="off" style="margin:0">
     <div class="chips" style="margin:10px 0 0">${[['', 'Todo o período'], ['mes', 'Este mês'], ['ant', 'Mês passado'], ['30', 'Últimos 30 dias']].map(([k, l]) => `<button class="chip" data-act="fx-per" data-k="${k}" aria-pressed="${(k === '' ? !fx.from && !fx.to : JSON.stringify(periodo(k)) === JSON.stringify({ from: fx.from, to: fx.to }))}">${l}</button>`).join('')}
-      <button class="chip" data-act="fx-rev" aria-pressed="${fx.status === 'review'}">Só para revisar</button></div>
+      <button class="chip" data-act="fx-rev" aria-pressed="${fx.status === 'review'}">Só para revisar</button><button class="chip" data-act="fx-clear">Limpar filtros</button></div>
     <details ${open ? 'open' : ''} style="margin-top:10px"><summary class="small" style="cursor:pointer;color:var(--primary);font-weight:600">Mais filtros</summary>
       <div class="grid g3" style="gap:10px;margin-top:10px">
         <div><label class="lab" for="ftype">Tipo</label>${sel('ftype', fx.type, [['', 'Entradas e saídas'], ['out', 'Só saídas'], ['in', 'Só entradas']])}</div>
@@ -412,7 +413,7 @@ function lancamentos() {
         <div><label class="lab" for="fmax">Valor até (R$)</label><input class="field" id="fmax" data-fx="max" inputmode="decimal" value="${esc(fx.max)}"></div>
         <div><label class="lab" for="fsort">Ordenar por</label>${sel('fsort', fx.sort, [['date', 'Data (mais novo primeiro)'], ['value', 'Valor (maior primeiro)']])}</div>
       </div>
-      <div class="row" style="margin-top:10px"><button class="btn sm ghost" data-act="fx-clear">Limpar filtros</button></div></details></div>
+</details></div>
   <div id="lista">${listaExtrato()}</div>`;
 }
 
@@ -475,11 +476,11 @@ function modalHTML() {
     const m = modal;
     return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Novo lançamento"><h2 style="font-size:20px">${m.entrada ? 'Nova entrada' : 'Novo gasto'}</h2>
       <div class="seg" style="margin:10px 0"><button class="chip" aria-pressed="${!m.entrada}" data-act="add-kind" data-v="0">Gasto</button><button class="chip" aria-pressed="${m.entrada}" data-act="add-kind" data-v="1">Entrada</button></div>
-      <label class="lab" for="av1">Valor (R$)</label><input class="field" id="av1" inputmode="decimal" placeholder="0,00" autofocus>
-      <label class="lab" for="ad1">O que foi</label><input class="field" id="ad1" placeholder="ex.: almoço, farmácia">
+      <label class="lab" for="av1">Valor (R$)</label><input class="field" id="av1" inputmode="decimal" placeholder="0,00" value="${esc(m.v || '')}" autofocus>
+      <label class="lab" for="ad1">O que foi</label><input class="field" id="ad1" placeholder="ex.: almoço, farmácia" value="${esc(m.d || '')}">
       <label class="lab" for="ac1">Categoria</label><select class="field" id="ac1">${catsFor(m.entrada ? 'in' : 'out').map((c) => `<option>${esc(c)}</option>`).join('')}</select>
       <label class="lab">Onde</label><div class="seg">${[['dinheiro', 'Dinheiro'], ['cartao', 'Cartão'], ['banco', 'Conta']].map(([k, l]) => `<button class="chip" aria-pressed="${m.acct === k}" data-act="add-acct" data-v="${k}">${l}</button>`).join('')}</div>
-      <label class="lab" for="adt">Data</label><input class="field" id="adt" type="date" value="${today()}">
+      <label class="lab" for="adt">Data</label><input class="field" id="adt" type="date" value="${m.dt || today()}">
       <p class="small mute">${m.acct === 'banco' ? 'Na conta: quando o extrato trouxer este gasto, ele só confirma, sem duplicar.' : m.acct === 'cartao' ? 'No cartão: entra na fatura, não no saldo do banco.' : 'Dinheiro: fica numa conta própria e não entra na conferência com o banco.'}</p>
       <div class="row" style="margin-top:12px"><button class="btn primary" data-act="add-save">Salvar</button><button class="btn" data-act="close">Cancelar</button></div></div></div>`;
   }
@@ -488,9 +489,9 @@ function modalHTML() {
     return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Simular um valor"><h2 style="font-size:20px">Simular um valor</h2>
       <p class="small mute">Fica só na projeção. Pode remover depois, quando quiser.</p>
       <div class="seg" style="margin:10px 0"><button class="chip" aria-pressed="${!m.entrada}" data-act="sim-kind" data-v="0">Saída</button><button class="chip" aria-pressed="${m.entrada}" data-act="sim-kind" data-v="1">Entrada</button></div>
-      <label class="lab" for="sv1">Valor (R$)</label><input class="field" id="sv1" inputmode="decimal" placeholder="0,00" autofocus>
-      <label class="lab" for="sd1">O que é</label><input class="field" id="sd1" placeholder="ex.: celular novo, 13º">
-      <label class="lab" for="sdt">Data</label><input class="field" id="sdt" type="date" value="${today()}">
+      <label class="lab" for="sv1">Valor (R$)</label><input class="field" id="sv1" inputmode="decimal" placeholder="0,00" value="${esc(m.v || '')}" autofocus>
+      <label class="lab" for="sd1">O que é</label><input class="field" id="sd1" placeholder="ex.: celular novo, 13º" value="${esc(m.d || '')}">
+      <label class="lab" for="sdt">Data</label><input class="field" id="sdt" type="date" value="${m.dt || today()}">
       <div class="row" style="margin-top:12px"><button class="btn primary" data-act="sim-save">Simular</button><button class="btn" data-act="close">Cancelar</button></div></div></div>`;
   }
   if (modal.type === 'chat') {
@@ -550,9 +551,10 @@ function render() {
 }
 
 /* ---------- ações ---------- */
-const num = (id) => { const v = document.getElementById(id)?.value ?? ''; const n = Number(String(v).replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
-const numRaw = (id) => { const v = document.getElementById(id)?.value ?? ''; return Number(String(v).replace(',', '.')); };
+const num = (id) => moneyInput(document.getElementById(id)?.value ?? '');
+const numRaw = num;
 
+const keepTyped = (p) => { const g = (id) => document.getElementById(id)?.value; modal.v = g(p + 'v1') ?? modal.v; modal.d = g(p + 'd1') ?? modal.d; modal.dt = g(p + 'dt') ?? modal.dt; };
 const actions = {
   'pick-file': () => document.getElementById('file').click(),
   'pick-backup': () => document.getElementById('bfile').click(),
@@ -613,7 +615,7 @@ const actions = {
   filter: (el) => { filter = el.dataset.f; render(); },
   month: (el) => { monthYM = addMonths(monthYM || monthOf(today()), Number(el.dataset.d)); render(); },
   'sim-add': () => { modal = { type: 'sim', entrada: false }; render(); },
-  'sim-kind': (el) => { modal.entrada = el.dataset.v === '1'; render(); },
+  'sim-kind': (el) => { keepTyped('s'); modal.entrada = el.dataset.v === '1'; render(); },
   'sim-save': () => {
     const v = num('sv1');
     if (!(v > 0)) return toast('Digite o valor.');
@@ -623,8 +625,8 @@ const actions = {
   'sim-del': (el) => commit(removeSim(state, Number(el.dataset.id)), 'Simulação removida'),
   'sim-clear': () => commit(clearSims(state), 'Simulações removidas'),
   add: () => { modal = { type: 'add', entrada: false, acct: 'dinheiro' }; render(); },
-  'add-kind': (el) => { modal.entrada = el.dataset.v === '1'; render(); },
-  'add-acct': (el) => { modal.acct = el.dataset.v; render(); },
+  'add-kind': (el) => { keepTyped('a'); modal.entrada = el.dataset.v === '1'; render(); },
+  'add-acct': (el) => { keepTyped('a'); modal.acct = el.dataset.v; render(); },
   'add-save': () => {
     const v = num('av1'); const d = document.getElementById('ad1').value.trim();
     if (!(v > 0)) return toast('Digite o valor.');
