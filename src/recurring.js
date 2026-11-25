@@ -25,7 +25,8 @@ export function occurrences(state, fromExclusive, toInclusive, { includeCard = f
 
 export function coverage(state) {
   let c = state.baseline.date;
-  for (const t of state.txns) if (t.acct === 'banco' && t.date > c) c = t.date;
+  // só o que veio do banco (extrato) define até onde o extrato vai; gasto anotado à mão não conta aqui
+  for (const t of state.txns) if (t.acct === 'banco' && !t.manual && t.date > c) c = t.date;
   if (state.bank?.date && state.bank.date > c) c = state.bank.date;
   return c;
 }

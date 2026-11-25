@@ -18,6 +18,11 @@ function futureEvents(state, fromExclusive, toInclusive, opts = {}) {
     if (opts.livre && salarioDoProximoMes(state, rec, due, opts.livre)) { opts.livre_skip = (opts.livre_skip || 0) + rec.amount; continue; }
     push(due, rec.desc, rec.type === 'in' ? rec.amount : -rec.amount);
   }
+  // gastos/entradas que você anotou na conta e o extrato ainda não trouxe
+  for (const t of state.txns) {
+    if (t.acct !== 'banco' || !t.manual || t.confirmed || t.date <= fromExclusive || t.date > toInclusive) continue;
+    push(t.date, `Anotado: ${t.desc}`, t.amount);
+  }
   // dízimo
   for (let ym = monthOf(fromExclusive); ym <= monthOf(toInclusive); ym = addMonths(ym, 1)) {
     const dz = dizimoFor(state, ym);
@@ -83,7 +88,8 @@ export function podeGastar(state, today, opts = {}) {
   const ev = futureEvents(state, cov, eom, o);
   let net = 0;
   for (const list of ev.values()) for (const e of list) net += e.amount;
+  const itens = [...ev.entries()].flatMap(([d, l]) => l.map((e) => ({ date: d, ...e }))).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const value = round2(bal - reservado + net);
   const left = Math.max(1, diffDays(eom, today) + 1);
-  return { value, perDay: round2(value / left), daysLeft: left, balance: bal, committed: round2(-net), reservado };
+  return { value, perDay: round2(value / left), daysLeft: left, balance: bal, committed: round2(-net), reservado, itens };
 }

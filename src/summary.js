@@ -93,7 +93,7 @@ export function monthView(state, ym, today) {
   const avulsos = {};
   let avulsosTotal = 0, pendente = 0, pendenteN = 0;
   for (const t of state.txns) {
-    if (t.acct !== 'banco' || !t.date.startsWith(ym) || t.kind !== 'out' || t.rec) continue;
+    if ((t.acct !== 'banco' && t.acct !== 'dinheiro') || !t.date.startsWith(ym) || t.kind !== 'out' || t.rec) continue;
     if (t.cat === 'Ignorado' || NAO_AVULSO.has(t.cat)) continue;
     if (t.status === 'review') { pendente = round2(pendente - t.amount); pendenteN++; continue; }
     const c = t.cat || 'Sem categoria';

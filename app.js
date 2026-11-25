@@ -1,7 +1,7 @@
 import { parseOFX, looksLikeOFX } from './src/ofx.js';
 import { parseCSV } from './src/csv.js';
-import { CATS_IN, CATS_OUT } from './src/rules.js';
-import { ignoreTxns, setFatura, ignoreSuggestion, removeRecurring, saveRecurring, setSkip, addManual, addSim, clearSims, removeSim, confirmGroup, importParsed, moveToAccount, newState, removeTxn, reviewGroups, updateTxn } from './src/ledger.js';
+import { CATS_IN, CATS_OUT, isOwnTransfer } from './src/rules.js';
+import { reclassify, ignoreTxns, setFatura, ignoreSuggestion, removeRecurring, saveRecurring, setSkip, addManual, addSim, clearSims, removeSim, confirmGroup, importParsed, moveToAccount, newState, removeTxn, reviewGroups, updateTxn } from './src/ledger.js';
 import { currentBalance, monthPlan, monthView, nextFaturaDue, reconcile } from './src/summary.js';
 import { forecast, podeGastar } from './src/forecast.js';
 import { coverage, isSalary, monthItems, payWindow } from './src/recurring.js';
@@ -207,6 +207,31 @@ function pendBanner(mp) {
   if (!n) return '';
   return `<div class="alert" style="margin-top:10px"><strong>Previsão incompleta:</strong> ${n} lançamentos (${reviewGroups(state).length} estabelecimentos) sem revisão ficam de fora dos cálculos. <button class="btn sm" style="margin-left:6px" data-view="revisar">Revisar</button></div>`;
 }
+const helpSeen = () => { try { return localStorage.getItem('conc-help-seen') === '1'; } catch { return false; } };
+const HELP = `<h2 style="font-size:20px">Como funciona</h2>
+  <h3 class="hh">No dia a dia</h3>
+  <ol class="help">
+    <li><b>Gastou no débito ou no Pix?</b> Não precisa anotar. Baixe o PDF do extrato no app do banco e toque em <b>Importar extrato</b>. Pode importar todo dia: o app pega só o que é novo e não duplica.</li>
+    <li><b>Revise o que entrou</b> (aba Revisar): escolha a categoria uma vez e o app lembra nas próximas. Sem tempo? <b>Ignorar</b>.</li>
+    <li><b>Gastou em dinheiro, ou quer anotar antes de baixar o extrato?</b> Botão <b>+ Gasto</b>:
+      <ul><li><b>Conta</b>: já desconta do "Pode gastar". Quando o extrato trouxer, ele só confirma, sem duplicar.</li>
+      <li><b>Dinheiro</b>: fica separado, não mexe na conta do banco.</li>
+      <li><b>Cartão</b>: vai para a fatura do cartão.</li></ul></li>
+    <li><b>Fatura fechou?</b> Digite o valor na aba Mês, no card do cartão.</li>
+  </ol>
+  <h3 class="hh">Onde fica cada coisa</h3>
+  <div class="helpgrid">
+    <div><b>Início</b><span>Quanto ainda pode gastar neste mês e como vai ficar o próximo.</span></div>
+    <div><b>Revisar</b><span>Lançamentos novos esperando categoria.</span></div>
+    <div><b>Mês</b><span>Para onde foi o dinheiro: contas fixas, dia a dia por categoria, cartão e o fechamento.</span></div>
+    <div><b>Fixas</b><span>Contas e entradas que se repetem todo mês.</span></div>
+    <div><b>Extrato</b><span>Todos os lançamentos, com busca e filtros.</span></div>
+    <div><b>✦ Assistente</b><span>Pergunte: "quanto gastei com mercado?", "quanto vai sobrar?".</span></div>
+  </div>
+  <h3 class="hh">Os números</h3>
+  <ul class="help"><li><b>Pode gastar</b> = saldo da conta − o que ainda vai sair até o fim do mês (contas fixas, dízimo, fatura, gastos anotados). O salário que cai a partir do dia 26 é do mês seguinte e não entra.</li>
+  <li><b>Sobra das contas</b> (próximo mês) = entradas − contas fixas − fatura. <b>Sobra final</b> tira também o dízimo e o gasto do dia a dia previsto.</li>
+  <li>Lançamento <b>sem revisão</b> não entra em nenhuma conta até você categorizar.</li></ul>`;
 function inicio() {
   const t = today();
   const rec = reconcile(state);
@@ -228,7 +253,8 @@ function inicio() {
   }
   return `
   <div class="pagehead"><div><div class="small mute">${t.slice(8, 10)} de ${MESES[Number(t.slice(5, 7)) - 1]} de ${t.slice(0, 4)}</div><h1>Início</h1></div>
-    <button class="btn primary" data-act="pick-file">Importar extrato</button></div>
+    <div class="row"><button class="btn ghost" data-act="help">Como funciona</button><button class="btn primary" data-act="pick-file">Importar extrato</button></div></div>
+  ${helpSeen() ? '' : `<div class="card" style="margin-bottom:16px;border-color:var(--primary2)"><div class="between" style="gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:240px"><strong>Primeira vez por aqui?</strong><div class="small mute">Veja em 1 minuto como usar no dia a dia e onde fica cada coisa.</div></div><div class="row"><button class="btn primary" data-act="help">Como funciona</button><button class="btn ghost" data-act="help-hide">Já sei</button></div></div></div>`}
   <div class="grid gtop" style="margin-bottom:16px">
     ${banner(rec)}
     <div class="card kpi"><div class="label">Última importação</div>
@@ -237,7 +263,15 @@ function inicio() {
       ${groups.length ? `<button class="btn sm" style="margin-top:10px" data-view="revisar">Revisar agora</button>` : ''}</div>
     <div class="card kpi"><div class="label">Pode gastar até o fim do mês</div>
       <div class="value num ${pg.value < 0 ? 'neg' : ''}">${brl(pg.value)}</div>
-      <div class="sub">${pg.value >= 0 ? `cerca de ${brl(pg.perDay)} por dia (${pg.daysLeft} dias)` : 'o previsto passa do saldo'}<br>Saldo ${brl(pg.balance)}${pg.reservado ? ` − ${brl(pg.reservado)} do salário do mês que vem (já na conta, não é livre)` : ''}, e ainda vai sair ${brl(pg.committed)} neste mês.</div></div>
+      <div class="sub">${pg.value >= 0 ? `cerca de ${brl(pg.perDay)} por dia (${pg.daysLeft} dias)` : 'o que ainda vai sair passa do saldo'}</div>
+      <div class="pgcalc">
+        <div class="between"><span>Saldo da conta${state.bank ? ` (extrato ${ddmm(state.bank.date)})` : ''}</span><span class="num">${brl(pg.balance)}</span></div>
+        ${pg.reservado ? `<div class="between"><span>Salário do mês que vem (já reservado)</span><span class="num neg">${brl(-pg.reservado)}</span></div>` : ''}
+        ${pg.itens.slice(0, 5).map((e) => `<div class="between"><span>${ddmm(e.date)} · ${esc(e.label)}</span><span class="num ${e.amount < 0 ? 'neg' : 'pos'}">${brl(e.amount)}</span></div>`).join('')}
+        ${pg.itens.length > 5 ? `<div class="mute">e mais ${pg.itens.length - 5} até o fim do mês</div>` : ''}
+        ${!pg.itens.length && !pg.reservado ? '<div class="mute">Nada mais previsto para sair neste mês.</div>' : ''}
+        <div class="between" style="border-top:1px solid var(--line);padding-top:4px;margin-top:2px"><strong>Pode gastar</strong><strong class="num ${pg.value < 0 ? 'neg' : ''}">${brl(pg.value)}</strong></div>
+        <div class="mute" style="margin-top:4px">Só a conta do banco. Dinheiro e cartão ficam de fora.</div></div></div>
   </div>
   ${simCard(sims, fc, base, pg, pgBase)}
   <div class="grid g2">
@@ -358,7 +392,7 @@ function mes() {
       <div class="sep"></div><div class="between"><strong>Total do mês</strong><strong class="num">${brl(v.fixosTotal)}</strong></div>
       ${v.fixosAPagar > 0 ? `<div class="small mute" style="margin-top:4px">Ainda sem baixa: ${brl(v.fixosAPagar)}</div>` : ''}</div>
     <div class="card"><div class="between"><h2>2 · Dia a dia</h2><span class="small mute">vêm do extrato</span></div>
-      <div class="small mute" style="margin:4px 0 8px">Gastos comuns já revisados. Sua previsão: ${brl(prev)}/mês.</div>
+      <div class="small mute" style="margin:4px 0 8px">Gastos comuns já revisados (conta e dinheiro). Sua previsão: ${brl(prev)}/mês.</div>
       ${cats.length ? cats.map(([c, a]) => `<div style="margin-bottom:12px"><div class="between"><span>${esc(c)}</span><strong class="num">${brl(a)}</strong></div><div class="bar"><i class="${a > prev ? 'over' : ''}" style="width:${Math.min(100, (a / prev) * 100).toFixed(0)}%"></i></div></div>`).join('') : '<div class="empty">Nenhum gasto do dia a dia revisado neste mês.</div>'}
       <div class="sep"></div><div class="between"><strong>Até agora</strong><strong class="num">${brl(v.avulsosTotal)} de ${brl(prev)}</strong></div>${v.pendente ? `<div class="small" style="margin-top:6px;color:var(--amber-d)">Sem revisão: ${brl(v.pendente)} (${v.pendenteN}) não entra no total. <a href="#/revisar" data-view="revisar" style="color:inherit">Revisar</a></div>` : ''}</div>
     <div class="card"><div class="between"><h2>3 · Cartão</h2><span class="small mute">vence ${ddmm(f.due)}</span></div>
@@ -434,6 +468,8 @@ function ajustes() {
       <label class="lab" for="sf">Salário: começa a cair no dia (do mês anterior)</label><input class="field" id="sf" type="number" min="1" max="28" value="${c.salaryFrom ?? 26}">
       <label class="lab" for="sd">Salário: cai até o dia</label><input class="field" id="sd" type="number" min="1" max="28" value="${(state.recurring.find(isSalary) || {}).day ?? 5}">
       <p class="small mute">O que entrar nessa janela conta como salário do mês seguinte. Ex.: de 26/11 a 05/12 é o salário de dezembro.</p>
+      <label class="lab" for="own">Seus nomes como aparecem no extrato</label><input class="field" id="own" value="${esc((c.ownNames || []).join(', '))}" placeholder="ex.: hebert akym, hebert a o rocha">
+      <p class="small mute">Pix e transferências com esses nomes são dinheiro seu indo de uma conta para outra: não contam como renda, gasto nem dízimo. Separe por vírgula. Não coloque um nome que também aparece no seu salário ou em pagamentos de trabalho.</p>
       <label class="lab" for="av">Gastos do dia a dia previstos por mês (R$)</label><input class="field" id="av" inputmode="decimal" value="${String(c.avulsosMensal).replace('.', ',')}">
       <label class="lab" for="dz">Dízimo (% das entradas, 0 para desligar)</label><input class="field" id="dz" inputmode="decimal" value="${c.dizimoAuto ? String(round2(c.dizimoPct * 100)).replace('.', ',') : '0'}">
       <div class="row" style="margin-top:12px"><button class="btn primary" data-act="save-cfg">Salvar</button></div></div>
@@ -494,6 +530,7 @@ function modalHTML() {
       <label class="lab" for="sdt">Data</label><input class="field" id="sdt" type="date" value="${m.dt || today()}">
       <div class="row" style="margin-top:12px"><button class="btn primary" data-act="sim-save">Simular</button><button class="btn" data-act="close">Cancelar</button></div></div></div>`;
   }
+  if (modal.type === 'help') return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Como funciona">${HELP}<div class="row" style="margin-top:14px"><button class="btn primary" data-act="close">Entendi</button></div></div></div>`;
   if (modal.type === 'chat') {
     const cfg = aiCfg();
     const bub = (m) => m.role === 'user' ? `<div class="bub me">${esc(m.text)}</div>` : m.role === 'err' ? `<div class="bub err">${esc(m.text)}</div>` : `<div class="bub ai">${esc(m.text).replace(/\n/g, '<br>')}</div>`;
@@ -602,6 +639,8 @@ const actions = {
   },
   'prop-ok': (el) => { const p = chat.pending[Number(el.dataset.i)]; if (!p) return; const r = applyTool(state, p.name, p.input); chat.pending.splice(Number(el.dataset.i), 1); chat.log.push({ role: 'ai', text: '✓ ' + r.msg }); chat.history.push({ role: 'user', content: `[app] O usuário aplicou: ${p.label}` }, { role: 'assistant', content: [{ type: 'text', text: 'Anotado.' }] }); commit(r.state, r.msg); scrollChat(); },
   'prop-no': (el) => { const p = chat.pending.splice(Number(el.dataset.i), 1)[0]; if (p) chat.history.push({ role: 'user', content: `[app] O usuário descartou: ${p.label}` }, { role: 'assistant', content: [{ type: 'text', text: 'Ok, descartado.' }] }); render(); scrollChat(); },
+  help: () => { try { localStorage.setItem('conc-help-seen', '1'); } catch { /* ok */ } modal = { type: 'help' }; render(); },
+  'help-hide': () => { try { localStorage.setItem('conc-help-seen', '1'); } catch { /* ok */ } render(); },
   'ignore-all': () => { const ids = state.txns.filter((t) => t.status === 'review').map((t) => t.id); if (!ids.length) return; if (!confirm(`Ignorar ${ids.length} lançamentos sem revisão? Eles continuam no saldo, mas saem dos cálculos.`)) return; commit(ignoreTxns(state, ids), `${ids.length} lançamentos ignorados`); },
   'ignore-ids': (el) => { const ids = el.dataset.ids.split(',').map(Number); commit(ignoreTxns(state, ids), ids.length > 1 ? `${ids.length} ignorados` : 'Ignorado'); },
   'rev-mode': (el) => { revMode = el.dataset.v; render(); },
@@ -633,7 +672,8 @@ const actions = {
     if (!d) return toast('Diga o que foi.');
     const amount = modal.entrada ? v : -v;
     const { state: next } = addManual(state, { date: document.getElementById('adt').value || today(), amount, desc: d, cat: document.getElementById('ac1').value, acct: modal.acct });
-    modal = null; commit(next, 'Lançamento salvo');
+    const onde = modal.acct === 'banco' ? 'na Conta: já desconta do Pode gastar' : modal.acct === 'cartao' ? 'no Cartão: entra na fatura' : 'em Dinheiro';
+    modal = null; commit(next, `Salvo ${onde}. Aparece no Extrato e no Mês.`);
   },
   edit: (el) => { modal = { type: 'edit', id: Number(el.dataset.id) }; render(); },
   'edit-save': (el) => {
@@ -656,7 +696,10 @@ const actions = {
     const sal = s.recurring.find(isSalary); if (sal) sal.day = Math.max(1, Math.min(28, Number(document.getElementById('sd').value) || sal.day));
     s.config.avulsosMensal = num('av') >= 0 ? num('av') : 400;
     const dz = numRaw('dz'); s.config.dizimoAuto = dz > 0; if (dz > 0) s.config.dizimoPct = dz / 100;
-    commit(s, 'Configurações salvas');
+    s.config.ownNames = document.getElementById('own').value.split(/[,;\n]/).map((x) => x.trim().toLowerCase()).filter((x) => x.length >= 3);
+    // seus nomes valem também para o que você já tinha categorizado
+    let n = 0; for (const t of s.txns) if (t.acct === 'banco' && !t.manual && isOwnTransfer(t.desc, s) && t.cat !== 'Transferências e repasses') { t.locked = false; n++; }
+    commit(reclassify(s), n ? `Configurações salvas. ${n} lançamento(s) agora são transferência entre suas contas.` : 'Configurações salvas');
   },
   'toggle-rec': (el) => { const s = structuredClone(state); const r = s.recurring.find((x) => x.id === el.dataset.id); r.active = el.checked; commit(s); },
   export: () => {

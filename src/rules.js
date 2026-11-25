@@ -15,10 +15,17 @@ const GUESSES = [
   [/tim |claro|vivo|oi fibra|internet|provedor/, 'Telefone e internet'],
 ];
 
+export function isOwnTransfer(desc, state) {
+  const nd = normDesc(desc);
+  const own = (state.config?.ownNames || []).map(normDesc).filter(Boolean);
+  return own.some((n) => nd.includes(n)) && /pix|transf|ted|doc/.test(nd);
+}
 export function classify(desc, amount, state, acct = 'banco') {
   const nd = normDesc(desc);
   const mk = merchantKey(desc);
   const kindBySign = amount >= 0 ? 'in' : 'out';
+  // Pix/transferência para ou de você mesmo (outra conta sua) não é renda nem gasto: vem antes de qualquer regra
+  if (acct !== 'cartao' && isOwnTransfer(desc, state)) return { cat: 'Transferências e repasses', kind: 'transfer', status: 'ok', guess: '', why: 'entre as suas contas' };
 
   const rule = (state.rules || []).find((r) => r.key === mk);
   if (rule) return { cat: rule.cat, kind: rule.kind || kindBySign, status: 'ok', guess: '', why: 'regra' };
@@ -26,8 +33,6 @@ export function classify(desc, amount, state, acct = 'banco') {
   if (acct === 'cartao') {
     if (amount > 0 && /pagamento|pagto|recebido|credito/.test(nd)) return { cat: 'Fatura do cartão', kind: 'transfer', status: 'ok', guess: '', why: 'pagamento da fatura' };
   } else {
-    const own = (state.config?.ownNames || []).map(normDesc).filter(Boolean);
-    if (own.some((n) => nd.includes(n)) && /pix|transf|ted|doc/.test(nd)) return { cat: 'Transferências e repasses', kind: 'transfer', status: 'ok', guess: '', why: 'entre as suas contas' };
     if (amount < 0 && (/(pagamento|pagto|pgto).*(cart|fatura)/.test(nd) || /fatura.*cart/.test(nd) || /^cartao de credito/.test(nd))) {
       return { cat: 'Fatura do cartão', kind: 'cardpay', status: 'ok', guess: '', why: 'pagamento de fatura' };
     }
