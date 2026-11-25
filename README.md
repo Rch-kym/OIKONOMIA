@@ -83,3 +83,7 @@ Edição de previstos e criação de novos dentro do app (hoje só liga/desliga)
 - **Extrato**: busca por nome/categoria/valor, períodos rápidos, tipo, conta, categoria, situação, datas, faixa de valor e ordenação, com totais do que está filtrado.
 - **Assistente** (botão ✦): funciona de graça e sem internet, com comandos em português (marcar categoria, quanto gastei, criar conta fixa, duplicados, fatura). Conversa livre é opcional, com chave de API própria. Mudanças viram propostas que você confirma com **Aplicar**.
 - Extrato PDF conferido pela soma passa a mandar no período: lançamentos antigos que não constam mais nele são removidos (a categoria é herdada pelo equivalente novo).
+
+## Vários PDFs e "Ignorar"
+- Em **Importar extrato** dá para escolher vários arquivos de uma vez. O app lê do mais antigo ao mais novo; o último manda no saldo. Reimportar o que já existe não duplica e corrige o que mudou.
+- Na **Revisão**: **Ignorar** (por cartão) e **Ignorar todos**. O lançamento continua no saldo, mas sai da revisão, dos gastos, do dízimo e da previsão. Desfazer: Extrato → categoria "Ignorado".

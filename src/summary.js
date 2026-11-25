@@ -23,7 +23,7 @@ function addDaysISO(iso, n) { const d = new Date(iso + 'T12:00:00'); d.setDate(d
 
 // Gasto do dia a dia: só entra o que já foi REVISADO (lançamentos sem revisão ficam de fora até você categorizar),
 // sem transferências, fatura do cartão, dízimo e contas fixas. Usa o maior entre a média real e a sua previsão.
-const NAO_AVULSO = new Set(['Transferências e repasses', 'Fatura do cartão', 'Dízimo e ofertas']);
+const NAO_AVULSO = new Set(['Transferências e repasses', 'Fatura do cartão', 'Dízimo e ofertas', 'Ignorado']);
 export function avulsoInfo(state) {
   const cov = coverage(state);
   const from = addDaysISO(cov, -29);
@@ -73,7 +73,7 @@ export function dizimoFor(state, ym) {
   let income = 0;
   let pend = 0, pendN = 0;
   for (const t of state.txns) {
-    if (!(t.acct === 'banco' && t.kind === 'in' && t.date.startsWith(ym) && t.cat !== 'Transferências e repasses')) continue;
+    if (!(t.acct === 'banco' && t.kind === 'in' && t.date.startsWith(ym) && t.cat !== 'Transferências e repasses' && t.cat !== 'Ignorado')) continue;
     if (t.status === 'review') { pend += t.amount; pendN++; continue; }
     income += t.amount;
   }
@@ -94,11 +94,12 @@ export function monthView(state, ym, today) {
   let avulsosTotal = 0;
   for (const t of state.txns) {
     if (t.acct !== 'banco' || !t.date.startsWith(ym) || t.kind !== 'out' || t.rec) continue;
+    if (t.cat === 'Ignorado') continue;
     const c = t.cat || 'Sem categoria';
     avulsos[c] = round2((avulsos[c] || 0) - t.amount);
     avulsosTotal = round2(avulsosTotal - t.amount);
   }
-  const entradas = state.txns.filter((t) => t.acct === 'banco' && t.date.startsWith(ym) && t.kind === 'in' && t.cat !== 'Transferências e repasses').reduce((s, t) => s + t.amount, 0);
+  const entradas = state.txns.filter((t) => t.acct === 'banco' && t.date.startsWith(ym) && t.kind === 'in' && t.cat !== 'Transferências e repasses' && t.cat !== 'Ignorado').reduce((s, t) => s + t.amount, 0);
   const dueISO = nextFaturaDue(state, today);
   return {
     ym, cov,

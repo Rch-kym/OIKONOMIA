@@ -1,8 +1,8 @@
 // Categorias (as mesmas da aba Config da planilha) e classificação automática.
 import { normDesc, merchantKey } from './util.js';
 
-export const CATS_OUT = ['Saúde', 'Educação', 'Telefone e internet', 'Moradia', 'Dívidas/Empréstimos', 'Cuidados pessoais', 'Assinaturas', 'Alimentação', 'Transporte', 'Lazer', 'Vestuário e pessoal', 'Casa', 'Presentes', 'Dízimo e ofertas', 'Trabalho/Ferramentas', 'Fatura do cartão', 'Transferências e repasses', 'Outros'];
-export const CATS_IN = ['Salário', 'Freelance', 'Rendimentos', 'Vale Transporte', 'Vale Alimentação', 'Transferências e repasses', 'Outros'];
+export const CATS_OUT = ['Saúde', 'Educação', 'Telefone e internet', 'Moradia', 'Dívidas/Empréstimos', 'Cuidados pessoais', 'Assinaturas', 'Alimentação', 'Transporte', 'Lazer', 'Vestuário e pessoal', 'Casa', 'Presentes', 'Dízimo e ofertas', 'Trabalho/Ferramentas', 'Fatura do cartão', 'Transferências e repasses', 'Outros', 'Ignorado'];
+export const CATS_IN = ['Salário', 'Freelance', 'Rendimentos', 'Vale Transporte', 'Vale Alimentação', 'Transferências e repasses', 'Outros', 'Ignorado'];
 
 // Palpites por palavra-chave. Nunca são aplicados sem você confirmar uma vez.
 const GUESSES = [

@@ -1,7 +1,7 @@
 import { parseOFX, looksLikeOFX } from './src/ofx.js';
 import { parseCSV } from './src/csv.js';
 import { CATS_IN, CATS_OUT } from './src/rules.js';
-import { setFatura, ignoreSuggestion, removeRecurring, saveRecurring, setSkip, addManual, addSim, clearSims, removeSim, confirmGroup, importParsed, moveToAccount, newState, removeTxn, reviewGroups, updateTxn } from './src/ledger.js';
+import { ignoreTxns, setFatura, ignoreSuggestion, removeRecurring, saveRecurring, setSkip, addManual, addSim, clearSims, removeSim, confirmGroup, importParsed, moveToAccount, newState, removeTxn, reviewGroups, updateTxn } from './src/ledger.js';
 import { currentBalance, monthPlan, monthView, nextFaturaDue, reconcile } from './src/summary.js';
 import { forecast, podeGastar } from './src/forecast.js';
 import { coverage, isSalary, monthItems, payWindow } from './src/recurring.js';
@@ -79,12 +79,26 @@ function parseAny(text) { return looksLikeOFX(text) ? parseOFX(text) : parseCSV(
 const isPdf = (f) => /\.pdf$/i.test(f.name || '') || f.type === 'application/pdf';
 
 // Lê qualquer arquivo aceito (PDF, OFX ou CSV) e importa.
-async function importFile(file, asCard) {
+async function importFile(file, asCard) { return importMany([file], asCard); }
+// Vários arquivos de uma vez: lê todos, aplica do mais antigo para o mais novo (o último extrato manda no saldo)
+// e relê o que já foi importado sem duplicar.
+async function importMany(files, asCard) {
   try {
-    let parsed;
-    if (isPdf(file)) { toast('Lendo o PDF...'); parsed = await parsePDF(await file.arrayBuffer()); }
-    else parsed = parseAny(await readFileText(file));
-    finishImport(parsed, file.name, asCard);
+    const parsedList = [];
+    for (const [i, file] of files.entries()) {
+      if (isPdf(file)) toast(`Lendo ${files.length > 1 ? `${i + 1}/${files.length}: ` : ''}${file.name}`);
+      const parsed = isPdf(file) ? await parsePDF(await file.arrayBuffer()) : parseAny(await readFileText(file));
+      if (!parsed.txns.length) throw new Error(`Não encontrei lançamentos em ${file.name}.`);
+      if (asCard) parsed.account = 'cartao';
+      const ds = parsed.txns.map((t) => t.date).sort();
+      parsedList.push({ parsed, name: file.name, first: ds[0], last: ds[ds.length - 1] });
+    }
+    parsedList.sort((x, y) => (x.last < y.last ? -1 : x.last > y.last ? 1 : x.first < y.first ? -1 : 1));
+    let cur = state; const reports = [];
+    for (const { parsed, name } of parsedList) { const r = importParsed(cur, parsed, { file: name }); cur = r.state; reports.push(r.report); }
+    state = { ...cur, savedAt: new Date().toISOString() }; persist(); scheduleSync();
+    modal = { type: 'import', report: reports[reports.length - 1], all: reports.length > 1 ? reports : null };
+    view = 'inicio'; render();
   } catch (e) {
     modal = { type: 'erro', msg: e.message };
     render();
@@ -184,9 +198,9 @@ function salaryHint(g) {
 }
 
 const calcRow = (label, val, cls, why) => `<div class="calc"><div class="line" style="border:0;padding-bottom:0"><span>${label}</span><strong class="num ${cls}">${val}</strong></div><div class="tiny mute why">${why}</div></div>`;
-function avulsoTxt(i) {
+function avulsoTxt(i, dias) {
   const base = i.base === 'real' ? `Média real dos últimos ${i.dias} dias já revisados: ${brl(i.real)}/dia.` : `Sua previsão de ${brl(i.monthly)}/mês (${brl(i.plan)}/dia)${i.real != null ? `; a média real revisada (${brl(i.real)}/dia) é menor` : ''}.`;
-  return base + (i.pendenteN ? ` ${i.pendenteN} saída(s) sem revisão (${brl(i.pendente)}) ainda não entram.` : '');
+  return `${brl(i.rate)}/dia × ${dias} dias. ` + base + (i.pendenteN ? ` ${i.pendenteN} saída(s) sem revisão (${brl(i.pendente)}) ainda não entram.` : '');
 }
 function pendBanner(mp) {
   const n = state.txns.filter((t) => t.status === 'review').length;
@@ -237,7 +251,7 @@ function inicio() {
       ${calcRow('Contas fixas', brl(-mp.totalFixos), 'neg', `${mp.fixos.length} conta${mp.fixos.length === 1 ? '' : 's'} no débito (aba Fixas).`)}
       ${calcRow(`Fatura do cartão (${ddmm(mp.cartaoDue)})`, brl(-mp.cartao), 'neg', mp.fatura.manual != null ? 'Valor que você digitou.' : `Estimativa: só as assinaturas (${brl(mp.fatura.totalSubs)}) e compras no cartão (${brl(mp.fatura.totalCompras)}). Digite o valor real na aba Mês quando a fatura fechar.`)}
       ${calcRow('Dízimo', brl(-mp.dizimo), 'neg', mp.dizimoInfo ? `${Math.round(mp.dizimoInfo.pct * 100)}% de ${brl(mp.dizimoInfo.base)} de entradas já conferidas${mp.dizimoInfo.pendenteN ? `. ${mp.dizimoInfo.pendenteN} entrada(s) sem revisão (${brl(mp.dizimoInfo.pendente)}) ainda não contam.` : '.'}` : 'Dízimo automático desligado.')}
-      ${calcRow('Gastos do dia a dia', brl(-mp.avulsos), 'neg', avulsoTxt(mp.avulsoInfo))}
+      ${calcRow('Gastos do dia a dia', brl(-mp.avulsos), 'neg', avulsoTxt(mp.avulsoInfo, new Date(Number(ym.slice(0, 4)), Number(ym.slice(5)), 0).getDate()))}
       <div class="line" style="border-top:2px solid var(--line);margin-top:4px"><strong>Sobra prevista</strong><strong class="num ${mp.sobra < 0 ? 'neg' : 'pos'}" style="font-size:18px">${brl(mp.sobra)}</strong></div>
       <div class="tiny mute" style="margin-top:4px">Sobra = entradas − fixas − fatura − dízimo − dia a dia.</div></div>
     </div>
@@ -255,7 +269,9 @@ function revisar() {
       .sort((a, b) => (a.firstDate < b.firstDate ? -1 : a.firstDate > b.firstDate ? 1 : 0));
   }
   const toggle = `<div class="seg" role="group" aria-label="Ordem"><button class="chip" aria-pressed="${revMode === 'data'}" data-act="rev-mode" data-v="data">Por data</button><button class="chip" aria-pressed="${revMode === 'loja'}" data-act="rev-mode" data-v="loja">Por estabelecimento</button></div>`;
-  const head = `<div class="pagehead"><div><div class="small mute">${grouped.length ? 'Confirme uma vez; o app lembra nas próximas' : 'Nada pendente'}</div><h1>Revisar${groups.length ? ` (${groups.length})` : ''}</h1></div>${grouped.length ? toggle : ''}</div>`;
+  const nPend = state.txns.filter((t) => t.status === 'review').length;
+  const head = `<div class="pagehead"><div><div class="small mute">${grouped.length ? 'Confirme uma vez; o app lembra nas próximas' : 'Nada pendente'}</div><h1>Revisar${groups.length ? ` (${groups.length})` : ''}</h1></div>${grouped.length ? toggle : ''}</div>
+  ${grouped.length ? `<div class="card" style="margin-bottom:14px"><div class="between" style="gap:12px;flex-wrap:wrap"><div style="min-width:220px;flex:1"><strong>Sem tempo de conferir um por um?</strong><div class="small mute">"Ignorar" tira da revisão e dos cálculos (gastos, dízimo, previsão). O lançamento continua no extrato e no saldo, então o banco segue conferindo. Dá para desfazer pelo Extrato, categoria "Ignorado".</div></div><button class="btn danger" data-act="ignore-all">Ignorar todos (${nPend})</button></div></div>` : ''}`;
   if (!groups.length) return head + '<div class="card empty">Tudo revisado. Os próximos extratos entram sozinhos com as regras que você já confirmou.</div>';
   return head + `<div class="grid" style="gap:14px">${groups.map((g) => {
     const quick = [...new Set([g.guess, ...(g.kind === 'in' ? ['Freelance', 'Salário', 'Rendimentos', 'Outros'] : ['Alimentação', 'Transporte', 'Saúde', 'Lazer', 'Outros'])].filter(Boolean))].slice(0, 5);
@@ -266,7 +282,7 @@ function revisar() {
       <div class="small mute">${g.guess ? 'Palpite: ' + esc(g.guess) + '. Toque em Confirmar ou escolha outra.' : 'Escolha a categoria.'}</div>
       <div class="chips">${quick.map((c) => `<button class="chip" aria-pressed="${sel === c}" data-act="pick-cat" data-key="${esc(g.key)}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
         <select class="field" style="width:auto;min-width:130px" aria-label="Outra categoria" data-sel-key="${esc(g.key)}"><option value="">Outra…</option>${catsFor(g.kind).filter((c) => !quick.includes(c)).map((c) => `<option ${sel === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
-      <div class="row"><button class="btn primary" ${sel ? '' : 'disabled'} data-act="confirm" data-key="${esc(g.key)}">Confirmar e lembrar</button><button class="btn" data-act="fixa-from" data-id="${g.ids[0]}">É conta fixa</button>
+      <div class="row"><button class="btn primary" ${sel ? '' : 'disabled'} data-act="confirm" data-key="${esc(g.key)}">Confirmar e lembrar</button><button class="btn" data-act="fixa-from" data-id="${g.ids[0]}">É conta fixa</button><button class="btn ghost" data-act="ignore-ids" data-ids="${g.ids.join(',')}">Ignorar</button>
       <span class="small mute">Da próxima vez, "${esc(g.desc)}" entra direto${sel ? ' em ' + esc(sel) : ''}.${g.same ? ` Vale também para mais ${g.same} ${g.same === 1 ? 'igual' : 'iguais'}.` : ''}</span></div>${sel === 'Salário' ? salaryHint(g) : ''}</div>`;
   }).join('')}</div>`;
 }
@@ -405,7 +421,7 @@ function ajustes() {
   return `<div class="pagehead"><div><div class="small mute">Importar, conferir e configurar</div><h1>Ajustes</h1></div></div>
   <div class="grid g2" style="align-items:start">
   <div class="grid">
-    <div class="card"><h2>Importar extrato</h2><p class="small mute">Arquivo OFX ou CSV do banco. Pelo celular, também dá para compartilhar o arquivo direto para este app.</p>
+    <div class="card"><h2>Importar extrato</h2><p class="small mute">PDF, OFX ou CSV do banco. Pode escolher <b>vários de uma vez</b>: o app lê do mais antigo ao mais novo, não duplica o que já tem e corrige o que mudou. Pelo celular, também dá para compartilhar o arquivo direto para este app.</p>
       <label class="small row" style="margin:6px 0"><input type="checkbox" id="asCard"> É a fatura do cartão</label>
       <button class="btn primary" data-act="pick-file">Escolher arquivo</button></div>
     <div class="card"><h2>Saldo do banco</h2><p class="small mute">Sem arquivo? Digite o saldo que o app do banco mostra agora, para conferir.</p>
@@ -448,7 +464,7 @@ function modalHTML() {
   if (modal.type === 'import') {
     const r = modal.report; const rec = reconcile(state); const n = reviewGroups(state).length;
     return `<div class="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="Extrato recebido"><div class="small mute">${r.acct === 'cartao' ? 'Fatura do cartão' : 'Extrato do banco'}</div><h2 style="font-size:22px;margin:2px 0 12px">Extrato recebido</h2>
-      <div class="card" style="margin-bottom:12px;padding:12px 14px"><strong>${esc(r.file || 'arquivo')}</strong></div>
+      ${modal.all ? `<div class="card" style="margin-bottom:12px;padding:8px 14px"><div class="small mute" style="margin-bottom:4px">${modal.all.length} arquivos, lidos do mais antigo para o mais novo</div>${modal.all.map((x) => `<div class="line"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(x.file)}</span><span class="small mute" style="white-space:nowrap">${x.added} novos · ${x.duplicates} já tinha${x.before ? ` · ${x.before} anteriores` : ''}${x.removed?.length ? ` · ${x.removed.length} removidos` : ''}</span></div>`).join('')}</div>` : `<div class="card" style="margin-bottom:12px;padding:12px 14px"><strong>${esc(r.file || 'arquivo')}</strong></div>`}
       ${r.rebased ? `<div class="alert" style="margin-bottom:12px">Saldo inicial ajustado para <strong>${brl(r.rebased.amount)}</strong> em ${ddmm(r.rebased.date)}, como diz o extrato. Os lançamentos anteriores a essa data não entram na conta.</div>` : ''}
       ${r.check ? (r.check.ok ? `<div class="small mute" style="margin-bottom:12px">PDF conferido: a soma dos ${r.check.count} lançamentos fecha com o saldo do extrato${r.check.days ? ` e com os ${r.check.days} saldos diários` : ''}.</div>` : `<div class="alert" style="margin-bottom:12px"><strong>Atenção:</strong> a soma dos lançamentos lidos (${brl(r.check.sum)}) não fecha com o saldo do PDF (${brl(r.check.expected)})${r.check.badDays?.length ? ` ou com o saldo dos dias ${r.check.badDays.map((d) => ddmm(d)).join(', ')}` : ''}. Algum lançamento pode não ter sido lido. Confira antes de seguir.</div>`) : ''}
       ${r.acct === 'cartao' ? '' : banner(rec, true)}
@@ -527,7 +543,7 @@ function render() {
     <nav class="bottomnav" aria-label="Seções">${nav()}</nav>
     <button class="fab ai" data-act="chat-open" aria-label="Abrir o assistente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></button>
     <button class="fab" data-act="add" aria-label="Novo gasto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Gasto</button>
-    <input type="file" id="file" accept=".pdf,.ofx,.csv,.txt,application/pdf,text/csv,text/plain,application/x-ofx,application/octet-stream" hidden>
+    <input type="file" id="file" accept=".pdf,.ofx,.csv,.txt,application/pdf,text/csv,text/plain,application/x-ofx,application/octet-stream" multiple hidden>
     ${modalHTML()}</div>`;
   document.title = 'Conciliação — OIKONOMIA';
   setSync(window.__sync || '');
@@ -584,6 +600,8 @@ const actions = {
   },
   'prop-ok': (el) => { const p = chat.pending[Number(el.dataset.i)]; if (!p) return; const r = applyTool(state, p.name, p.input); chat.pending.splice(Number(el.dataset.i), 1); chat.log.push({ role: 'ai', text: '✓ ' + r.msg }); chat.history.push({ role: 'user', content: `[app] O usuário aplicou: ${p.label}` }, { role: 'assistant', content: [{ type: 'text', text: 'Anotado.' }] }); commit(r.state, r.msg); scrollChat(); },
   'prop-no': (el) => { const p = chat.pending.splice(Number(el.dataset.i), 1)[0]; if (p) chat.history.push({ role: 'user', content: `[app] O usuário descartou: ${p.label}` }, { role: 'assistant', content: [{ type: 'text', text: 'Ok, descartado.' }] }); render(); scrollChat(); },
+  'ignore-all': () => { const ids = state.txns.filter((t) => t.status === 'review').map((t) => t.id); if (!ids.length) return; if (!confirm(`Ignorar ${ids.length} lançamentos sem revisão? Eles continuam no saldo, mas saem dos cálculos.`)) return; commit(ignoreTxns(state, ids), `${ids.length} lançamentos ignorados`); },
+  'ignore-ids': (el) => { const ids = el.dataset.ids.split(',').map(Number); commit(ignoreTxns(state, ids), ids.length > 1 ? `${ids.length} ignorados` : 'Ignorado'); },
   'rev-mode': (el) => { revMode = el.dataset.v; render(); },
   'pick-cat': (el) => { picked[el.dataset.key] = el.dataset.cat; render(); },
   confirm: (el) => {
@@ -697,9 +715,9 @@ document.addEventListener('change', async (e) => {
   if (t.dataset?.fx && view === 'lancamentos') { onFx(e); return; }
   if (t.dataset?.fixaType !== undefined && modal?.type === 'fixa') { captureFixa(); modal.draft.cat = modal.draft.type === 'in' ? 'Outros' : 'Outros'; render(); return; }
   if (t.id === 'file' && t.files[0]) {
-    const f = t.files[0]; const asCard = document.getElementById('asCard')?.checked;
+    const fs = [...t.files]; const asCard = document.getElementById('asCard')?.checked;
     t.value = '';
-    await importFile(f, asCard);
+    await importMany(fs, asCard);
   } else if (t.id === 'bfile' && t.files[0]) {
     try { const s = JSON.parse(await readFileText(t.files[0])); if (!s.txns || !s.baseline) throw new Error('arquivo inválido'); commit(s, 'Cópia restaurada'); } catch { toast('Esse arquivo não é uma cópia deste app.'); }
   } else if (t.dataset?.selKey) {

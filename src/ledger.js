@@ -232,3 +232,12 @@ export function setFatura(stateIn, dueISO, amount) {
   if (amount > 0) state.faturas[dueISO] = Math.round(amount * 100) / 100; else delete state.faturas[dueISO];
   return state;
 }
+
+// "Ignorar": o lançamento continua no saldo (o banco confere), mas não conta em gastos, dízimo nem projeção, e some da revisão.
+export function ignoreTxns(stateIn, ids) {
+  const state = structuredClone(stateIn);
+  const set = new Set(ids);
+  for (const t of state.txns) if (set.has(t.id)) { t.cat = 'Ignorado'; t.locked = true; t.status = 'ok'; t.guess = ''; }
+  reclassify(state);
+  return state;
+}
