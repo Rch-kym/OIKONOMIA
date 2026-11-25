@@ -51,10 +51,19 @@ export function importParsed(stateIn, parsed, meta = {}) {
   const existing = new Map();
   for (const t of state.txns) existing.set(keyOf(t), (existing.get(keyOf(t)) || 0) + 1);
   const seenInFile = new Map();
+  const histSeen = new Map();
 
   for (const p of parsed.txns) {
     const t = { id: 0, date: p.date, amount: round2(p.amount), desc: p.desc, acct };
-    if (acct === 'banco' && t.date <= state.baseline.date) { report.before++; continue; }
+    if (acct === 'banco' && t.date <= state.baseline.date) {
+      report.before++;
+      // extrato de meses anteriores: não mexe no saldo, mas guarda para descobrir contas fixas
+      state.hist = state.hist || [];
+      const hk = keyOf(t); const have = state.hist.filter((h) => keyOf({ ...h, acct: 'banco' }) === hk).length;
+      const seen = (histSeen.get(hk) || 0) + 1; histSeen.set(hk, seen);
+      if (seen > have && state.hist.length < 5000) { state.hist.push({ date: t.date, amount: t.amount, desc: t.desc }); report.history = (report.history || 0) + 1; }
+      continue;
+    }
     const k = keyOf(t);
     const occ = (seenInFile.get(k) || 0) + 1;
     seenInFile.set(k, occ);
@@ -94,7 +103,7 @@ export function reviewGroups(state) {
     if (t.date > g.lastDate) g.lastDate = t.date;
     if (!g.guess && t.guess) g.guess = t.guess;
   }
-  return [...map.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  return [...map.values()].sort((a, b) => (a.firstDate < b.firstDate ? -1 : a.firstDate > b.firstDate ? 1 : Math.abs(b.total) - Math.abs(a.total)));
 }
 
 // "Confirmar e lembrar": cria a regra e reclassifica tudo do mesmo estabelecimento.
@@ -146,3 +155,54 @@ export function addSim(state, { date, amount, label }) {
 }
 export function removeSim(state, id) { return { ...state, sims: (state.sims || []).filter((x) => x.id !== id) }; }
 export function clearSims(state) { return { ...state, sims: [] }; }
+
+// ---- contas fixas: criar, editar, apagar, pular um mês ----
+export function saveRecurring(stateIn, rec) {
+  const state = structuredClone(stateIn);
+  const clean = {
+    id: rec.id || `f${state.nextId++}`,
+    desc: String(rec.desc || '').trim() || 'Conta fixa',
+    cat: rec.cat || (rec.type === 'in' ? 'Salário' : 'Outros'),
+    amount: round2(Math.abs(Number(rec.amount) || 0)),
+    day: Math.max(1, Math.min(31, Number(rec.day) || 1)),
+    active: rec.active !== false,
+    card: !!rec.card && rec.type !== 'in',
+    type: rec.type === 'in' ? 'in' : 'out',
+    match: String(rec.match || '').trim(),
+    variable: !!rec.variable,
+    from: rec.from || '',
+    until: rec.until || '',
+  };
+  const i = state.recurring.findIndex((r) => r.id === clean.id);
+  if (i >= 0) state.recurring[i] = { ...state.recurring[i], ...clean }; else state.recurring.push(clean);
+  reclassify(state);
+  return state;
+}
+export function removeRecurring(stateIn, id) {
+  const state = structuredClone(stateIn);
+  state.recurring = state.recurring.filter((r) => r.id !== id);
+  state.skips = (state.skips || []).filter((k) => !k.startsWith(id + '|'));
+  reclassify(state);
+  return state;
+}
+export function setSkip(stateIn, id, due, on) {
+  const state = structuredClone(stateIn);
+  const k = `${id}|${due}`;
+  state.skips = (state.skips || []).filter((x) => x !== k);
+  if (on) state.skips.push(k);
+  reclassify(state);
+  return state;
+}
+export function ignoreSuggestion(stateIn, key) {
+  const state = structuredClone(stateIn);
+  state.ignored = [...new Set([...(state.ignored || []), key])];
+  return state;
+}
+
+// Valor da fatura digitado pelo usuário (o PDF do cartão só sai quando fecha). null/vazio remove.
+export function setFatura(stateIn, dueISO, amount) {
+  const state = structuredClone(stateIn);
+  state.faturas = { ...(state.faturas || {}) };
+  if (amount > 0) state.faturas[dueISO] = Math.round(amount * 100) / 100; else delete state.faturas[dueISO];
+  return state;
+}

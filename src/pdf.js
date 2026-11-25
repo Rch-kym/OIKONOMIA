@@ -96,7 +96,9 @@ function finish(txns, opening, closing, daily) {
   if (opening && closing) {
     const sum = round2(out.reduce((s, t) => s + t.amount, 0));
     const expected = round2(closing.amount - opening.amount);
-    check = { ok: Math.abs(sum - expected) < 0.005, sum, expected, count: out.length };
+    // cada "Saldo do dia" do PDF também precisa fechar com a soma acumulada (pega lançamento no dia errado)
+    const badDays = daily.filter((d) => Math.abs(out.filter((t) => t.date <= d.date).reduce((a, t) => a + t.amount, opening.amount) - d.amount) >= 0.006).map((d) => d.date);
+    check = { ok: Math.abs(sum - expected) < 0.005 && !badDays.length, sum, expected, count: out.length, days: daily.length, badDays };
   }
   return { format: 'pdf', account: 'banco', txns: out, balance: closing, opening, daily, check };
 }

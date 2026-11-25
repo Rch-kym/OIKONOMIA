@@ -1,6 +1,6 @@
 // Números das telas: saldo, conferência com o banco, mês (fixos/avulsos/cartão) e "pode gastar".
 import { cardDueFor } from './card.js';
-import { coverage, monthItems, occurrences } from './recurring.js';
+import { coverage, inRange, monthItems, occurrences } from './recurring.js';
 import { addMonths, dateInMonth, daysInMonth, diffDays, endOfMonth, monthOf, round2 } from './util.js';
 
 export function bankBalanceAt(state, dateISO) {
@@ -43,7 +43,7 @@ export function fatura(state, dueISO) {
   let ym = addMonths(monthOf(dueISO), -2);
   for (let i = 0; i < 4; i++, ym = addMonths(ym, 1)) {
     for (const rec of state.recurring) {
-      if (!rec.active || !rec.card) continue;
+      if (!rec.active || !rec.card || !inRange(rec, ym)) continue;
       const d = dateInMonth(ym, rec.day);
       if (cardDueFor(d, state.config) === dueISO) subs.push({ desc: rec.desc, amount: rec.amount, date: d });
     }
@@ -52,7 +52,8 @@ export function fatura(state, dueISO) {
   const sSubs = round2(subs.reduce((s, x) => s + x.amount, 0));
   const sCompras = round2(compras.reduce((s, t) => s - t.amount, 0));
   const pago = state.txns.filter((t) => t.acct === 'banco' && t.kind === 'cardpay' && Math.abs(diffDays(t.date, dueISO)) <= 6).reduce((s, t) => s - t.amount, 0);
-  return { due: dueISO, subs, compras, totalSubs: sSubs, totalCompras: sCompras, total: round2(sSubs + sCompras), pago: round2(pago) };
+  const manual = state.faturas && state.faturas[dueISO] != null ? Number(state.faturas[dueISO]) : null;
+  return { due: dueISO, subs, compras, totalSubs: sSubs, totalCompras: sCompras, estimado: round2(sSubs + sCompras), manual, total: manual != null ? round2(manual) : round2(sSubs + sCompras), pago: round2(pago) };
 }
 export function nextFaturaDue(state, fromISO) {
   let d = dateInMonth(monthOf(fromISO), state.config.cardDueDay ?? 16);
@@ -91,8 +92,8 @@ export function monthView(state, ym, today) {
   return {
     ym, cov,
     fixos, entradasPrevistas,
-    fixosTotal: round2(fixos.reduce((s, i) => s + i.planned, 0)),
-    fixosAPagar: round2(fixos.filter((i) => i.status !== 'paga' && i.status !== 'diferente').reduce((s, i) => s + i.planned, 0)),
+    fixosTotal: round2(fixos.filter((i) => i.status !== 'pulada').reduce((s, i) => s + i.planned, 0)),
+    fixosAPagar: round2(fixos.filter((i) => i.status !== 'paga' && i.status !== 'diferente' && i.status !== 'pulada').reduce((s, i) => s + i.planned, 0)),
     avulsos, avulsosTotal, avulsosPrevisto: state.config.avulsosMensal ?? 400,
     entradas: round2(entradas),
     fatura: fatura(state, dueISO),
@@ -103,8 +104,8 @@ export { daysInMonth };
 
 // Como o mês (normalmente o próximo) deve fechar: entradas, fixos, cartão, dízimo e avulsos esperados.
 export function monthPlan(state, ym) {
-  const entradas = state.recurring.filter((r) => r.active && r.type === 'in' && r.cat !== 'Vale Alimentação').map((r) => ({ label: r.desc, amount: r.amount }));
-  const fixos = state.recurring.filter((r) => r.active && r.type === 'out' && !r.card).map((r) => ({ label: r.desc, amount: r.amount }));
+  const entradas = state.recurring.filter((r) => r.active && inRange(r, ym) && r.type === 'in' && r.cat !== 'Vale Alimentação').map((r) => ({ label: r.desc, amount: r.amount }));
+  const fixos = state.recurring.filter((r) => r.active && inRange(r, ym) && r.type === 'out' && !r.card).map((r) => ({ label: r.desc, amount: r.amount }));
   const dueISO = dateInMonth(ym, state.config.cardDueDay ?? 16);
   const f = fatura(state, dueISO);
   const dz = dizimoFor(state, ym);

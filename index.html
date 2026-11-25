@@ -15,6 +15,26 @@
 <body>
 <div id="app"></div>
 <div id="toast" role="status" aria-live="polite"></div>
+<script>
+// Se o app não abrir (arquivo faltando ou versão antiga em cache), mostra o motivo em vez de tela branca.
+(function () {
+  var erros = [];
+  window.addEventListener('error', function (e) { erros.push(e.message + (e.filename ? ' (' + e.filename.split('/').slice(-2).join('/') + ')' : '')); });
+  window.addEventListener('unhandledrejection', function (e) { erros.push(String(e.reason && e.reason.message || e.reason)); });
+  function limpar() {
+    var t = [];
+    if (navigator.serviceWorker) t.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }));
+    if (window.caches) t.push(caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.indexOf('conc-static') === 0; }).map(function (k) { return caches.delete(k); })); }));
+    Promise.all(t).then(function () { location.reload(); });
+  }
+  window.__limparCache = limpar;
+  setTimeout(function () {
+    var app = document.getElementById('app');
+    if (app && app.children.length) return;
+    app.innerHTML = '<div style="max-width:520px;margin:12vh auto;padding:0 20px;font:15px/1.5 system-ui,sans-serif;color:#1B0E2E"><h2>O app não abriu</h2><p>Provavelmente algum arquivo do site está faltando ou ficou em versão antiga. Toque em <b>Limpar cache e recarregar</b>. Seus dados não são apagados.</p><p><button onclick="__limparCache()" style="background:#6D28D9;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:15px">Limpar cache e recarregar</button></p><p style="color:#6b5b86;font-size:13px">Se continuar, confira se a pasta <b>src</b> (com audit.js) e a pasta <b>vendor</b> foram enviadas ao GitHub.<br>Detalhe: ' + (erros.join(' | ') || 'sem mensagem').replace(/</g, '&lt;') + '</p></div>';
+  }, 4000);
+})();
+</script>
 <script type="module" src="app.js"></script>
 </body>
 </html>
