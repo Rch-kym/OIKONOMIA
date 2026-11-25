@@ -9,7 +9,8 @@
   "avulsosMensal": 400,
   "cardDueDay": 16,
   "cardCloseDay": 8,
-  "ownNames": []
+  "ownNames": [],
+  "salaryFrom": 26
  },
  "recurring": [
   {
