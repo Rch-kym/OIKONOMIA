@@ -1,7 +1,7 @@
 // Projeção do saldo dia a dia e o número "pode gastar até o fim do mês".
 import { avulsoRate, bankBalanceAt, dizimoFor, fatura } from './summary.js';
 import { coverage, isSalary, occurrences } from './recurring.js';
-import { addDays, addMonths, dateInMonth, diffDays, endOfMonth, monthOf, round2 } from './util.js';
+import { addDays, addMonths, brl, dateInMonth, diffDays, endOfMonth, monthOf, round2 } from './util.js';
 
 // Salário que cai a partir do dia "salaryFrom" (ex.: 26) é o salário do mês seguinte: não é dinheiro livre deste mês.
 function salarioDoProximoMes(state, rec, due, today) {
@@ -27,8 +27,8 @@ function futureEvents(state, fromExclusive, toInclusive, opts = {}) {
   for (let ym = monthOf(fromExclusive); ym <= monthOf(toInclusive); ym = addMonths(ym, 1)) {
     const dz = dizimoFor(state, ym);
     // "pode gastar": o dízimo do salário do mês seguinte fica para as contas de lá
-    const amt = dz && opts.livre ? Math.max(0, round2(dz.amount - dz.pct * ((opts.livre_skip || 0) + (opts.reservado || 0)))) : dz?.amount;
-    if (dz && !dz.paid && amt > 0 && dz.due > fromExclusive && dz.due <= toInclusive) push(dz.due, 'Dízimo (automático)', -amt);
+    const amt = dz && opts.livre && dz.baseTipo !== 'salario' ? Math.max(0, round2(dz.amount - dz.pct * ((opts.livre_skip || 0) + (opts.reservado || 0)))) : dz?.amount;
+    if (dz && !dz.paid && amt > 0 && dz.due > fromExclusive && dz.due <= toInclusive) push(dz.due, `Dízimo: ${Math.round(dz.pct * 100)}% de ${brl(round2(amt / dz.pct))}${dz.baseTipo === 'salario' ? ' (salário)' : ''}`, -amt);
   }
   // faturas do cartão
   const due = state.config.cardDueDay ?? 16;

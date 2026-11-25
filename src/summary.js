@@ -1,6 +1,6 @@
 // Números das telas: saldo, conferência com o banco, mês (fixos/avulsos/cartão) e "pode gastar".
 import { cardDueFor } from './card.js';
-import { coverage, inRange, monthItems, occurrences } from './recurring.js';
+import { coverage, inRange, isSalary, monthItems, occurrences, salaryComp } from './recurring.js';
 import { addMonths, dateInMonth, daysInMonth, diffDays, endOfMonth, monthOf, round2 } from './util.js';
 
 export function bankBalanceAt(state, dateISO) {
@@ -67,22 +67,40 @@ export function nextFaturaDue(state, fromISO) {
   return d;
 }
 
+// Dízimo do mês. Base padrão: só o SALÁRIO daquele mês (o de dezembro pode cair em 28/11).
+// Com config.dizimoBase = 'todas', usa todas as entradas conferidas do mês (sem transferências).
 export function dizimoFor(state, ym) {
   if (!state.config.dizimoAuto) return null;
+  const pct = state.config.dizimoPct ?? 0.1;
   const due = endOfMonth(ym);
-  let income = 0;
-  let pend = 0, pendN = 0;
+  const cov = coverage(state);
+  const paid = state.txns.find((t) => t.acct === 'banco' && t.amount < 0 && t.date.startsWith(ym) && (t.cat === 'Dízimo e ofertas' || /dizimo|oferta/.test(t.desc.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))));
+  let income = 0, pend = 0, pendN = 0; const fontes = [];
+  if ((state.config.dizimoBase || 'salario') === 'salario') {
+    const recs = state.recurring.filter((r) => isSalary(r) && r.active !== false);
+    for (const t of state.txns) {
+      const rec = t.rec && recs.find((r) => r.id === t.rec);
+      if (!rec || t.acct !== 'banco' || salaryComp(state, rec, t.recDue || t.date) !== ym) continue;
+      income += t.amount; fontes.push({ label: `salário recebido em ${t.date.slice(8)}/${t.date.slice(5, 7)}`, amount: t.amount });
+    }
+    if (!fontes.length) {
+      for (const { rec, due: d } of occurrences(state, addMonths(ym, -1) + '-00', due)) {
+        if (!recs.includes(rec) || salaryComp(state, rec, d) !== ym || d <= cov) continue;
+        if (state.txns.some((t) => t.rec === rec.id && t.recDue === d)) continue;
+        income += rec.amount; fontes.push({ label: `salário previsto para ${d.slice(8)}/${d.slice(5, 7)}`, amount: rec.amount });
+      }
+    }
+    return { due, amount: round2(income * pct), paid: !!paid, base: round2(income), pct, baseTipo: 'salario', fontes, pendente: 0, pendenteN: 0 };
+  }
   for (const t of state.txns) {
     if (!(t.acct === 'banco' && t.kind === 'in' && t.date.startsWith(ym) && t.cat !== 'Transferências e repasses' && t.cat !== 'Ignorado')) continue;
     if (t.status === 'review') { pend += t.amount; pendN++; continue; }
     income += t.amount;
   }
-  const cov = coverage(state);
-  for (const { rec, due: d } of occurrences(state, addMonths(ym, -0) + '-00', due)) {
+  for (const { rec, due: d } of occurrences(state, ym + '-00', due)) {
     if (rec.type === 'in' && d > cov && !state.txns.some((t) => t.rec === rec.id && t.recDue === d) && rec.cat !== 'Vale Alimentação') income += rec.amount;
   }
-  const paid = state.txns.find((t) => t.acct === 'banco' && t.amount < 0 && t.date.startsWith(ym) && /dizimo|oferta/.test(t.desc.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')));
-  return { due, amount: round2(income * (state.config.dizimoPct ?? 0.1)), paid: !!paid, base: round2(income), pct: state.config.dizimoPct ?? 0.1, pendente: round2(pend), pendenteN: pendN };
+  return { due, amount: round2(income * pct), paid: !!paid, base: round2(income), pct, baseTipo: 'todas', fontes, pendente: round2(pend), pendenteN: pendN };
 }
 
 export function monthView(state, ym, today) {

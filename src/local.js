@@ -118,7 +118,7 @@ export function localAsk(state, textRaw, today) {
   }
   if (/(quanto posso|posso gastar|pode gastar)/.test(n)) {
     const g = podeGastar(state, today);
-    return out(`Até o fim do mês você pode gastar cerca de ${brl(g.value)} (${brl(g.perDay)} por dia, ${g.daysLeft} dias).\nConta: saldo ${brl(g.balance)}${g.reservado ? ` − ${brl(g.reservado)} do salário do mês que vem, que já caiu mas é para as contas de lá` : ''} − ${brl(g.committed)} que ainda vai sair neste mês.`);
+    return out(`Até o fim do mês você pode gastar cerca de ${brl(g.value)} (${brl(g.perDay)} por dia, ${g.daysLeft} dias).\nConta: saldo ${brl(g.balance)}${g.reservado ? ` − ${brl(g.reservado)} do salário do mês que vem, que já caiu mas é para as contas de lá` : ''} − ${brl(g.committed)} que ainda vai sair neste mês${g.itens.length ? ':\n' + g.itens.map((e) => `• ${e.date.slice(8)}/${e.date.slice(5, 7)} ${e.label} ${brl(e.amount)}`).join('\n') : '.'}`);
   }
   if (/(resumo|fechamento|como estou|situacao)/.test(n)) {
     const ym = monthOf(today); const v = monthView(state, ym, today); const a = audit(state, ym, today);

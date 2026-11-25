@@ -198,6 +198,12 @@ function salaryHint(g) {
 }
 
 const calcRow = (label, val, cls, why) => `<div class="calc"><div class="line" style="border:0;padding-bottom:0"><span>${label}</span><strong class="num ${cls}">${val}</strong></div><div class="tiny mute why">${why}</div></div>`;
+function dizimoTxt(d) {
+  if (!d) return 'Dízimo automático desligado (Ajustes).';
+  const p = Math.round(d.pct * 100) + '%';
+  if (d.baseTipo === 'salario') return d.fontes.length ? `${p} do salário: ${d.fontes.map((f) => `${brl(f.amount)} (${f.label})`).join(' + ')}.` : `${p} do salário, mas nenhum salário deste mês foi encontrado ou previsto.`;
+  return `${p} de ${brl(d.base)} de entradas já conferidas${d.pendenteN ? `. ${d.pendenteN} entrada(s) sem revisão (${brl(d.pendente)}) ainda não contam.` : '.'}`;
+}
 function avulsoTxt(i, dias) {
   const base = i.base === 'real' ? `Média real dos últimos ${i.dias} dias já revisados: ${brl(i.real)}/dia.` : `Sua previsão de ${brl(i.monthly)}/mês (${brl(i.plan)}/dia)${i.real != null ? `; a média real revisada (${brl(i.real)}/dia) é menor` : ''}.`;
   return `${brl(i.rate)}/dia × ${dias} dias. ` + base + (i.pendenteN ? ` ${i.pendenteN} saída(s) sem revisão (${brl(i.pendente)}) ainda não entram.` : '');
@@ -285,7 +291,7 @@ function inicio() {
       ${calcRow('Contas fixas', brl(-mp.totalFixos), 'neg', `${mp.fixos.length} conta${mp.fixos.length === 1 ? '' : 's'} no débito (aba Fixas).`)}
       ${calcRow(`Fatura do cartão (${ddmm(mp.cartaoDue)})`, brl(-mp.cartao), 'neg', mp.fatura.manual != null ? 'Valor que você digitou.' : `Estimativa: só as assinaturas (${brl(mp.fatura.totalSubs)}) e compras no cartão (${brl(mp.fatura.totalCompras)}). Digite o valor real na aba Mês quando a fatura fechar.`)}
       <div class="calc" style="background:var(--bg);margin:6px -8px 0;padding:10px 8px;border-radius:10px"><div class="line" style="border:0;padding:0"><strong>Sobra das contas</strong><strong class="num ${mp.sobraContas < 0 ? 'neg' : 'pos'}" style="font-size:18px">${brl(mp.sobraContas)}</strong></div><div class="tiny mute">Entradas − contas fixas − fatura do cartão. É o que sobra só com as contas certas.</div></div>
-      ${calcRow('Dízimo', brl(-mp.dizimo), 'neg', mp.dizimoInfo ? `${Math.round(mp.dizimoInfo.pct * 100)}% de ${brl(mp.dizimoInfo.base)} de entradas já conferidas${mp.dizimoInfo.pendenteN ? `. ${mp.dizimoInfo.pendenteN} entrada(s) sem revisão (${brl(mp.dizimoInfo.pendente)}) ainda não contam.` : '.'}` : 'Dízimo automático desligado.')}
+      ${calcRow('Dízimo', brl(-mp.dizimo), 'neg', dizimoTxt(mp.dizimoInfo))}
       ${calcRow('Gastos do dia a dia', brl(-mp.avulsos), 'neg', avulsoTxt(mp.avulsoInfo, new Date(Number(ym.slice(0, 4)), Number(ym.slice(5)), 0).getDate()))}
       <div class="line" style="border-top:2px solid var(--line);margin-top:4px"><strong>Sobra final</strong><strong class="num ${mp.sobra < 0 ? 'neg' : 'pos'}" style="font-size:18px">${brl(mp.sobra)}</strong></div>
       <div class="tiny mute" style="margin-top:4px">Sobra final = sobra das contas − dízimo − gastos do dia a dia.</div></div>
@@ -407,7 +413,7 @@ function mes() {
       <div class="tiny mute" style="margin-top:6px">Quando a fatura fechar, digite o valor aqui. A projeção passa a usar ele no lugar da estimativa.</div></div>
   </div>
   <div class="card" style="margin-top:16px;font-size:14px;color:var(--ink2)"><strong style="color:var(--ink)">Como as três se somam:</strong> o saldo do banco cai quando as contas fixas e os gastos do dia a dia são debitados, e uma vez só, em ${ddmm(f.due)}, quando o cartão é pago. O "pagamento da fatura" no extrato não conta como gasto novo.
-    ${v.dizimo ? `<br>Dízimo automático de ${ddmm(v.dizimo.due)}: ${brl(v.dizimo.amount)}${v.dizimo.paid ? ' (já pago)' : ''}.` : ''}</div>`;
+    ${v.dizimo ? `<br>Dízimo automático de ${ddmm(v.dizimo.due)}: ${brl(v.dizimo.amount)}${v.dizimo.paid ? ' (já pago)' : ''}. ${dizimoTxt(v.dizimo)}` : ''}</div>`;
 }
 
 function listaExtrato() {
@@ -471,7 +477,8 @@ function ajustes() {
       <label class="lab" for="own">Seus nomes como aparecem no extrato</label><input class="field" id="own" value="${esc((c.ownNames || []).join(', '))}" placeholder="ex.: hebert akym, hebert a o rocha">
       <p class="small mute">Pix e transferências com esses nomes são dinheiro seu indo de uma conta para outra: não contam como renda, gasto nem dízimo. Separe por vírgula. Não coloque um nome que também aparece no seu salário ou em pagamentos de trabalho.</p>
       <label class="lab" for="av">Gastos do dia a dia previstos por mês (R$)</label><input class="field" id="av" inputmode="decimal" value="${String(c.avulsosMensal).replace('.', ',')}">
-      <label class="lab" for="dz">Dízimo (% das entradas, 0 para desligar)</label><input class="field" id="dz" inputmode="decimal" value="${c.dizimoAuto ? String(round2(c.dizimoPct * 100)).replace('.', ',') : '0'}">
+      <label class="lab" for="dz">Dízimo (%, 0 para desligar)</label><input class="field" id="dz" inputmode="decimal" value="${c.dizimoAuto ? String(round2(c.dizimoPct * 100)).replace('.', ',') : '0'}">
+      <label class="lab" for="dzb">Dízimo calculado sobre</label><select class="field" id="dzb"><option value="salario" ${(c.dizimoBase || 'salario') === 'salario' ? 'selected' : ''}>Só o salário</option><option value="todas" ${c.dizimoBase === 'todas' ? 'selected' : ''}>Todas as entradas (salário, trabalhos extras...)</option></select>
       <div class="row" style="margin-top:12px"><button class="btn primary" data-act="save-cfg">Salvar</button></div></div>
   </div>
   <div class="grid">
@@ -696,6 +703,7 @@ const actions = {
     const sal = s.recurring.find(isSalary); if (sal) sal.day = Math.max(1, Math.min(28, Number(document.getElementById('sd').value) || sal.day));
     s.config.avulsosMensal = num('av') >= 0 ? num('av') : 400;
     const dz = numRaw('dz'); s.config.dizimoAuto = dz > 0; if (dz > 0) s.config.dizimoPct = dz / 100;
+    s.config.dizimoBase = document.getElementById('dzb').value;
     s.config.ownNames = document.getElementById('own').value.split(/[,;\n]/).map((x) => x.trim().toLowerCase()).filter((x) => x.length >= 3);
     // seus nomes valem também para o que você já tinha categorizado
     let n = 0; for (const t of s.txns) if (t.acct === 'banco' && !t.manual && isOwnTransfer(t.desc, s) && t.cat !== 'Transferências e repasses') { t.locked = false; n++; }
